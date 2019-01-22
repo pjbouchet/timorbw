@@ -28,15 +28,16 @@
 
 pack<-c("tidyverse", # Tidyverse
         "raster", # Raster and GIS operations
+        "rgdal", # Working with geospatial data
         "pals", # Colour palettes (parula)
         "sf", # Simple features
         "lubridate", # Date handling
-        # https://stackoverflow.com/questions/52565472/get-map-not-passing-the-api-key-http-status-was-403-forbidden
         "rnaturalearth", # Shapefiles and Earth data
         "ggplot2", # Graphics
         "purrrlyr", # Intersection of purrr and dplyr - functions that formerly lived in purrr
         "scales", # For comma format on plots
         "ggsidekick", # Nice ggplot theme by Sean Anderson 
+        "rerddap", # R client for working with ERDDAP servers
         "janitor") # Data cleaning 
 
 for (i in 1:length(pack)){
@@ -50,6 +51,10 @@ for (i in 1:length(pack)){
 # Gets the latest install of ggmap
 # if(!requireNamespace("devtools")) install.packages("devtools")
 # devtools::install_github("dkahle/ggmap", ref = "tidyup", force=TRUE)
+
+# Also, Google has changed its policies. For use after July 2018, need to
+# log on to Google Cloud Platform, create project, generate API key and enable billing
+# https://stackoverflow.com/questions/52565472/get-map-not-passing-the-api-key-http-status-was-403-forbidden
 
 library(ggmap)
 
@@ -164,7 +169,14 @@ land <- rnaturalearth::ne_countries(type = 'countries',
 #'---------------------------------------------
 
 bw.ext <- as(extent(c(121, 132, -16, -7.5)), "SpatialPolygons")
-proj4string(bw.ext) <- CRSll
+sp::proj4string(bw.ext) <- CRSll
+
+#'---------------------------------------------
+# Survey area
+#'---------------------------------------------
+
+study.area <- raster::shapefile(file.path("gis", "study_area.shp"))
+sp::proj4string(study.area) <- CRSll
 
 #'---------------------------------------------
 # Crops land
@@ -195,13 +207,26 @@ gps.trks <- purrr::map(gps, ~.x %>%
 gps.07 <- do.call(rbind, gps.trks$`2007`)
 gps.08 <- do.call(rbind, gps.trks$`2008`)
 
+# Necessary for saving shapefiles to disk
+
+gps.07@data$time <- as.character(gps.07@data$time)
+gps.08@data$time <- as.character(gps.08@data$time)
+
+# Exports shapefiles
+
+# rgdal::writeOGR(obj = gps.07, dsn = file.path("gis"),
+#                 layer = "gps_tracks_2007", driver="ESRI Shapefile")
+# 
+# rgdal::writeOGR(obj = gps.08, dsn = file.path("gis"),
+#                 layer = "gps_tracks_2008", driver="ESRI Shapefile")
+
 #' =============================
 # MAPPING ====
 #' =============================
 
 # Register Google API Key
 
-ggmap::register_google(key = "AIzaSyAxvafx12hSaL5pMlJlOeXLBW0G5Bypvxw")
+# ggmap::register_google(key = "AIzaSyAxvafx12hSaL5pMlJlOeXLBW0G5Bypvxw")
 
 # Downloads basemap
 
@@ -297,9 +322,9 @@ gg.timor +  ggsn::north(data = gps.07f,
            y = -10, 
            size = 5)
   
-ggsave(filename = file.path(getwd(), "figures", "Figure1.pdf"), 
-       width = 25, 
-       height = 20, 
-       units = "cm")
+# ggsave(filename = file.path(getwd(), "figures", "Figure1.pdf"), 
+       # width = 25, 
+       # height = 20, 
+       # units = "cm")
 
 
