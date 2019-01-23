@@ -31,6 +31,7 @@ pack<-c("tidyverse", # Tidyverse
         "rgdal", # Working with geospatial data
         "pals", # Colour palettes (parula)
         "sf", # Simple features
+        "SDMTools", # Tools for processing data in SDMs
         "lubridate", # Date handling
         "rnaturalearth", # Shapefiles and Earth data
         "ggplot2", # Graphics
@@ -224,11 +225,15 @@ gps.08@data$time <- as.character(gps.08@data$time)
 # MAPPING ====
 #' =============================
 
+#'---------------------------------------------
 # Register Google API Key
+#'---------------------------------------------
 
 # ggmap::register_google(key = "AIzaSyAxvafx12hSaL5pMlJlOeXLBW0G5Bypvxw")
 
+#'---------------------------------------------
 # Downloads basemap
+#'---------------------------------------------
 
 gmap.timor<-ggmap::get_googlemap(center = c(lon=126,lat=-9.4),
                           zoom=8,
@@ -240,20 +245,27 @@ gmap.timor<-ggmap::get_googlemap(center = c(lon=126,lat=-9.4),
 # Quick visualisation
 # ggmap(gmap.timor)
 
+#'---------------------------------------------
 # Fortifies lines for plotting
+#'---------------------------------------------
+
 # Would normally convert to simple features, but transparency not implemented for lines yet
 
 gps.07f <- fortify(gps.07)
 gps.08f <- fortify(gps.08)
 
+#'---------------------------------------------
 # Axis labels
+#'---------------------------------------------
 
 xval <- seq(124.5,127.5,0.5)
 yval <- seq(8,10.5,0.5)
 lab.x<-c(paste(xval, "°E",sep=""))
 lab.y<-c(paste(yval, "°S",sep=""))
 
+#'---------------------------------------------
 # ggplot map
+#'---------------------------------------------
 
 gg.timor <- ggmap(gmap.timor)+ # basemap
 
@@ -295,6 +307,9 @@ gg.timor <- ggmap(gmap.timor)+ # basemap
   ggplot2::guides(fill = guide_legend(override.aes = list(size=6)))
   
 
+#'---------------------------------------------
+# North arrow and scale bar
+#'---------------------------------------------
 
 # Data argument HAS to match first data set of ggplot/ggmap
 # Also requires coord_equal otherwise returns an error about need for Cartesian coordinates
@@ -326,5 +341,54 @@ gg.timor +  ggsn::north(data = gps.07f,
        # width = 25, 
        # height = 20, 
        # units = "cm")
+
+#' =============================
+# RASTERS ====
+#' =============================
+
+#'---------------------------------------------
+# Bathymetry
+#'---------------------------------------------
+
+# From GEBCO 30s gridded dataset (see terms of use for acknowledgements)
+
+depth <- raster::raster(file.path("env", "gebco30sec.asc"))
+raster::projection(depth) <- CRSll
+
+depth <- raster::mask(x = depth, 
+                      mask = study.area)
+plot(depth)
+  
+#'---------------------------------------------
+# Seabed slope
+#'---------------------------------------------
+
+# Returns values representing the 'rise over run'
+# Convert to degrees by taking ATAN ( output ) * 57.29578
+  
+seabed_slope <- SDMTools::slope(mat = depth, latlon = T)
+# seabed_slope <- atan(seabed_slope)*180/pi
+plot(seabed_slope)
+# seabed_slope <- terrain(depth, opt = "slope", unit='degrees') 
+  
+  
+  
+  
+  
+  
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
