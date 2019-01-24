@@ -29,6 +29,7 @@
 pack<-c("tidyverse", # Tidyverse
         "raster", # Raster and GIS operations
         "rgdal", # Working with geospatial data
+        "rgeos", # Topology operations on geometries
         "pals", # Colour palettes (parula)
         "sf", # Simple features
         "SDMTools", # Tools for processing data in SDMs
@@ -166,6 +167,15 @@ land <- rnaturalearth::ne_countries(type = 'countries',
                                     continent = 'asia')
 
 #'---------------------------------------------
+# More detailed landmass for Timor leste
+#'---------------------------------------------
+
+# Extracted from GSHHS - http://www.soest.hawaii.edu/wessel/gshhg/
+
+coast <- raster::shapefile(file.path("gis", "timor_leste.shp"))
+coast_utm <- sp::spTransform(coast, CRSutm)
+
+#'---------------------------------------------
 # Defines study area extent
 #'---------------------------------------------
 
@@ -178,6 +188,8 @@ sp::proj4string(bw.ext) <- CRSll
 
 study.area <- raster::shapefile(file.path("gis", "study_area.shp"))
 sp::proj4string(study.area) <- CRSll
+
+study.area_utm <- sp::spTransform(study.area, CRSutm)
 
 #'---------------------------------------------
 # Crops land
@@ -355,9 +367,15 @@ gg.timor +  ggsn::north(data = gps.07f,
 depth <- raster::raster(file.path("env", "gebco30sec.asc"))
 raster::projection(depth) <- CRSll
 
-depth <- raster::mask(x = depth, 
-                      mask = study.area)
-plot(depth)
+depth <- raster::mask(x = depth, mask = study.area)
+depth <- raster::projectRaster(depth, crs = CRSutm) # Project to UTM
+
+depth <- raster::crop(x = depth, y = extent(study.area_utm))
+
+# Quick plot
+
+plot(depth, col = pals::parula(100))
+plot(coast_utm, add=T, col="lightgrey")
   
 #'---------------------------------------------
 # Seabed slope
@@ -366,10 +384,39 @@ plot(depth)
 # Returns values representing the 'rise over run'
 # Convert to degrees by taking ATAN ( output ) * 57.29578
   
-seabed_slope <- SDMTools::slope(mat = depth, latlon = T)
-# seabed_slope <- atan(seabed_slope)*180/pi
-plot(seabed_slope)
-# seabed_slope <- terrain(depth, opt = "slope", unit='degrees') 
+seabed_slope <- SDMTools::slope(mat = depth, latlon = F)
+seabed_slope <- atan(seabed_slope)*180/pi
+
+# Quick plot
+
+plot(seabed_slope, col = pals::parula(100))
+plot(coast_utm, add=T, col="lightgrey")
+
+#'---------------------------------------------
+# Distance to coast
+#'---------------------------------------------
+
+# Use rgeos to compute point-polygon distances
+# This outputs a matrix with a column for each feature in spgeom1.
+  
+rdf <- raster::as.data.frame(depth, xy = T)
+rdf <- rdf[complete.cases(rdf),] # Removes NAs
+rdf <- SpatialPoints(rdf[,1:2], CRSutm) # Converts to SpatialPts
+
+# Cartesian distance
+
+dc <-  rgeos::gDistance(spgeom1 = coast_utm, 
+                      spgeom2 = rdf, 
+                      byid=TRUE)
+
+# To get the nearest distance to any feature, apply min over rows
+  
+dist_coast <- apply(dc, 1, min)
+dist_coast <- cbind(sp::coordinates(rdf), dist_coast)
+dist_coast <- raster::rasterFromXYZ(xyz = dist_coast, crs = CRSutm)
+
+plot(dist_coast, col = pals::parula(100))
+plot(coast_utm, add = T, col = "lightgrey")
   
   
   
