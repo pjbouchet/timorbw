@@ -36,7 +36,7 @@ pack<-c("tidyverse", # Tidyverse
         "lubridate", # Date handling
         "rnaturalearth", # Shapefiles and Earth data
         "ggplot2", # Graphics
-        "purrrlyr", # Intersection of purrr and dplyr - functions that formerly lived in purrr
+        "purrrlyr", # Intersection of purrr/dplyr
         "scales", # For comma format on plots
         "ggsidekick", # Nice ggplot theme by Sean Anderson 
         "rerddap", # R client for working with ERDDAP servers
@@ -145,7 +145,8 @@ bw <- bw %>%
 
 bw.pts <- bw %>% 
   dplyr::filter(species == "Blue whale") %>% 
-  dplyr::filter(obs_type == "Dedicated")
+  dplyr::filter(obs_type == "Dedicated") %>% 
+  dplyr::filter(resighted == "Not a duplicate")
 
 #' =============================
 # GIS SHAPEFILES ====
