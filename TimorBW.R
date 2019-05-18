@@ -10,6 +10,10 @@
 #' ------------------------------------------------------------------------
 #' ------------------------------------------------------------------------
 
+# Examples of github repositories
+# https://github.com/dbarneche/fishEggSize
+# https://github.com/cboettig/noise-phenomena
+
 #' ====================================
 # LIBRARIES, SETTINGS ====
 #' ====================================
@@ -21,6 +25,7 @@
 # Note: sf requires GDAL, which can be tricky to install on some OS
 # For Mac, see: https://stackoverflow.com/questions/44973639/trouble-installing-sf-due-to-gdal
 
+# https://www.fromthebottomoftheheap.net/2018/10/23/introducing-gratia/
 
 # require(devtools)
 # devtools::install_github("seananderson/ggsidekick")
@@ -77,9 +82,82 @@ homeDir = getwd()
 dataDir = file.path(homeDir, "data")
 figDir = file.path(homeDir, "figures") 
 
+#'---------------------------------------------
+# Time zone
+#'---------------------------------------------
+
+Sys.setenv(TZ = "Australia/West")
+
 #' ====================================
 # FUNCTIONS ====
 #' ====================================
+
+# Function to plot an input raster over study area using ggplot
+
+raster_plot <- function(input.raster, col.ramp = pals::parula(100)){
+  
+  # Name of raster as legend title
+  
+  raster.name <- deparse(substitute(input.raster))
+  raster.name <- paste(toupper(substr(raster.name, 1, 1)), 
+                      substr(raster.name, 2, nchar(raster.name)), sep="")
+  raster.name <- gsub(pattern = "_", replacement = " ", raster.name)
+  
+  # Ensure that raster is in lat/lon
+  
+  if(!proj4string(input.raster)==as.character(CRSll)){
+    input.raster <- raster::projectRaster(from = input.raster, crs = CRSll)
+  }
+  
+  # Stops execution if basemap does not exist
+  
+  if(exists("gmap.timor")==FALSE) stop("Missing basemap")
+  
+  # Convert to data.frame for plotting
+  
+  input.raster <- raster::as.data.frame(input.raster, xy = TRUE)
+  names(input.raster) <- c("lon", "lat", "z")
+  
+  ggmap(gmap.timor)+ # basemap
+    
+    coord_equal() + # Needs to be ### to produce map in right dimension pair
+    
+    geom_tile(data = input.raster, aes(x = lon, y = lat, fill = z))+ # raster
+    
+    scale_fill_gradientn(colors = col.ramp,
+                         na.value = 'transparent',
+                         limits = range(input.raster$z),
+                         breaks = pretty(input.raster$z),
+                         labels = pretty(input.raster$z))+
+    
+    labs(fill = raster.name)+
+
+    xlab("")+
+    ylab("")+
+    
+    scale_x_continuous(limits = range(xval), 
+                       breaks= xval,
+                       labels = lab.x, expand=c(0,0))+
+    
+    scale_y_continuous(limits = range(-yval), 
+                       breaks= rev(-yval),
+                       labels = rev(lab.y),expand=c(0,0))+
+    
+    theme_sleek() + # ggsidekick magic happens here
+    
+    theme(axis.text.y = element_text(angle = 90, hjust = 0.5, size = 13),
+          axis.text.x = element_text(size = 13),
+          panel.border = element_rect(colour = "black", fill=NA, size=0.8),
+          legend.key = element_rect(fill = "transparent"),
+          legend.position = c(0.1, 0.25),
+          legend.key.width = unit(0.5,"cm"),
+          legend.background = element_rect(fill = "transparent", size = 2),
+          legend.text = element_text(size = 12, colour = "black"),
+          legend.title = element_text(size = 13, face = "bold", colour = "black"),
+          legend.key.size = unit(0.75,"cm"))
+  
+  
+}
 
 # Functions to change all character columns to factors and vice versa
 
@@ -248,7 +326,7 @@ gps.08@data$time <- as.character(gps.08@data$time)
 # Downloads basemap
 #'---------------------------------------------
 
-gmap.timor<-ggmap::get_googlemap(center = c(lon=126,lat=-9.4),
+gmap.timor <- ggmap::get_googlemap(center = c(lon=126,lat=-9.4),
                           zoom=8,
                           size = c(640, 640),
                           scale=2,
@@ -365,19 +443,20 @@ gg.timor +  ggsn::north(data = gps.07f,
 
 # From GEBCO 30s gridded dataset (see terms of use for acknowledgements)
 
-depth <- raster::raster(file.path("env", "gebco30sec.asc"))
-raster::projection(depth) <- CRSll
+bathy <- raster::raster(file.path("env", "gebco30sec.asc"))
+proj4string(bathy) <- CRSll
 
-depth <- raster::mask(x = depth, mask = study.area)
-depth <- raster::projectRaster(depth, crs = CRSutm) # Project to UTM
+bathy <- raster::projectRaster(bathy, crs = CRSutm) # Project to UTM
 
+depth <- raster::mask(x = bathy, mask = study.area_utm)
 depth <- raster::crop(x = depth, y = extent(study.area_utm))
 
 # Quick plot
 
 plot(depth, col = pals::parula(100))
 plot(coast_utm, add=T, col="lightgrey")
-  
+plot(study.area_utm, add=T)
+
 #'---------------------------------------------
 # Seabed slope
 #'---------------------------------------------
@@ -385,13 +464,17 @@ plot(coast_utm, add=T, col="lightgrey")
 # Returns values representing the 'rise over run'
 # Convert to degrees by taking ATAN ( output ) * 57.29578
   
-seabed_slope <- SDMTools::slope(mat = depth, latlon = F)
+seabed_slope <- SDMTools::slope(mat = bathy, latlon = F) # Must be in proj units, not latlon
 seabed_slope <- atan(seabed_slope)*180/pi
+
+seabed_slope <- raster::mask(x = seabed_slope, mask = study.area_utm)
+seabed_slope <- raster::crop(x = seabed_slope, y = extent(study.area_utm))
 
 # Quick plot
 
 plot(seabed_slope, col = pals::parula(100))
 plot(coast_utm, add=T, col="lightgrey")
+plot(study.area_utm, add=T)
 
 #'---------------------------------------------
 # Distance to coast
@@ -418,9 +501,87 @@ dist_coast <- raster::rasterFromXYZ(xyz = dist_coast, crs = CRSutm)
 
 plot(dist_coast, col = pals::parula(100))
 plot(coast_utm, add = T, col = "lightgrey")
+plot(study.area_utm, add=T)
   
+#'---------------------------------------------
+# Sea Surface Temperature (SST)
+#'---------------------------------------------
+
+# https://cran.r-project.org/web/packages/rerddap/vignettes/Using_rerddap.html
+
+# First determine the temporal variability of the system.
+# MUR (Multi-scale Ultra-high Resolution) is an analyzed SST product at 0.01-degree resolution going back to 2002.
+
+sstInfo <- info('jplMURSST41')
+
+# Define a location at which to assess temperature time series
+
+buoy <- sp::spsample(x = study.area, n = 1, type = "random")
+
+plot(study.area); points(buoy) # Quick plot
+
+# Retrieve daily sst between 2012 and 2018
+
+sst.buoy <- rerddap::griddap(x = sstInfo, 
+                             longitude = rep(coordinates(buoy)[1], 2), 
+                             latitude = rep(coordinates(buoy)[2], 2), 
+                             time = c('2012-01-01','2018-12-31'),
+                             fields = 'analysed_sst')
+
+# Extract date/time and sst values
+
+sst.buoy <- list(erddap = sst.buoy)
+sst.buoy$data <- tibble(date = as.Date(sst.buoy$erddap$data$time,
+                                       origin = '1970-01-01', tz = "GMT"),
+                                       sst = sst.buoy$erddap$data$analysed_sst)
+
+# Plot time series
+
+par(las=1)
+plot.ts(ts(sst.buoy$data$sst, frequency = 365, start = c(2012,1)),
+        xlab = NA, ylab = "SST (°C)")
+
+# Perform wavelet analysis
+
+require(WaveletComp)
+wavelet.timor <- WaveletComp::analyze.wavelet(my.data = sst.buoy$data,
+                                              my.series = "sst",
+                                              loess.span = 0,
+                                              dt = 1, 
+                                              lowerPeriod = 1,
+                                              upperPeriod = 1500,
+                                              make.pval = FALSE,
+                                              n.sim = 1000,
+                                              date.format = "%Y-%m-%d")
+
+# Plot wavelet power spectrum
+
+WaveletComp::wt.image(wavelet.timor, 
+                      exponent = 1,
+                      plot.coi = TRUE,
+                      color.key = "interval", 
+                      color.palette = "rev(pals::parula(n.levels))",
+                      n.levels = 100,
+                      show.date = TRUE,
+                      timelab = "",
+                      periodlab = "",
+                      legend.params = list(n.ticks = 15, 
+                                           label.digits = 1))
+
+# Wavelet power averages across time
+
+WaveletComp::wt.avg(wavelet.timor, siglvl = 0.05, sigcol = "blue")
+
+# Create SST climatologies
+
+#'---------------------------------------------
+# Fronts
+#'---------------------------------------------
   
-  
+# https://cran.r-project.org/web/packages/imager/vignettes/gettingstarted.html#example-2-edge-detection
+# https://www.rdocumentation.org/packages/wvtool/versions/1.0/topics/edge.detect
+# https://rdrr.io/github/galuardi/boaR/man/boaR-package.html
+# https://github.com/LuisLauM/grec
   
   
   
