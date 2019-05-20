@@ -37,6 +37,7 @@ pack<-c("tidyverse", # Tidyverse
         "rgeos", # Topology operations on geometries
         "pals", # Colour palettes (parula)
         "sf", # Simple features
+        "WaveletComp", # Wavelet analysis
         "SDMTools", # Tools for processing data in SDMs
         "lubridate", # Date handling
         "rnaturalearth", # Shapefiles and Earth data
@@ -64,6 +65,8 @@ for (i in 1:length(pack)){
 # https://stackoverflow.com/questions/52565472/get-map-not-passing-the-api-key-http-status-was-403-forbidden
 
 library(ggmap)
+
+set.seed(87)
 
 #'---------------------------------------------
 # Set tibble options
@@ -94,7 +97,9 @@ Sys.setenv(TZ = "Australia/West")
 
 # Function to plot an input raster over study area using ggplot
 
-raster_plot <- function(input.raster, col.ramp = pals::parula(100)){
+make_map <- function(input.raster, 
+                        col.ramp = pals::parula(100),
+                        show.canyons = FALSE){
   
   # Name of raster as legend title
   
@@ -113,6 +118,8 @@ raster_plot <- function(input.raster, col.ramp = pals::parula(100)){
   
   if(exists("gmap.timor")==FALSE) stop("Missing basemap")
   
+  if(show.canyons) canyons.plot <- fortify(canyons)
+  
   # Convert to data.frame for plotting
   
   input.raster <- raster::as.data.frame(input.raster, xy = TRUE)
@@ -123,6 +130,8 @@ raster_plot <- function(input.raster, col.ramp = pals::parula(100)){
     coord_equal() + # Needs to be ### to produce map in right dimension pair
     
     geom_tile(data = input.raster, aes(x = lon, y = lat, fill = z))+ # raster
+    
+    {if(show.canyons) geom_path(data = canyons.plot, aes(long, lat, group=group))}+
     
     scale_fill_gradientn(colors = col.ramp,
                          na.value = 'transparent',
@@ -176,6 +185,116 @@ createLines <- function(df){
   return(Sldf)}
 
 
+# Function to generate climatologies from errdapp data
+
+get_climatology <- function(dataset,
+                            variable.name,
+                            window = 8, # in days
+                            no.years = 15,
+                            region.shp = study.area,
+                            rmatch = TRUE,
+                            raster.dest = depth,
+                            date.start = '2017-04-07', 
+                            date.end = '2017-05-07'){
+  
+  message('Retrieving dataset details ...')
+  
+  # Get information on desired ERDDAP dataset.
+  
+  datInfo <- rerddap::info(dataset)
+  
+  message('Generating dates ...')
+  
+  # Generate date windows
+  
+  start.dates <- seq(ymd(date.start), ymd(date.end), 
+                     by = paste0(window, ' days'))
+  
+  end.dates <- seq(ymd(date.start) + days(window-1), ymd(date.end), 
+                   by = paste0(window, ' days'))
+  
+  # Adjust end dates if necessary
+  
+  if(length(end.dates)<length(start.dates)) end.dates <- c(end.dates, start.dates[length(start.dates)]+ days(window-1))
+  
+  start.dates <- purrr::map(.x = start.dates,
+                            .f = ~rev(seq(ymd(.x), length = no.years, by = "-1 year"))) 
+  
+  end.dates <- purrr::map(.x = end.dates,
+                          .f = ~rev(seq(ymd(.x), length = no.years, by = "-1 year"))) %>%
+    purrr::map(.x = ., .f = ~as.list(.x))
+  
+  dates.list <- purrr::map2(.x = start.dates,
+                            .y = end.dates,
+                            .f = ~tibble(.x, .y))
+  
+  # Download the data
+  
+  message('Downloading data ...')
+  
+  dat <- purrr::map(.x = dates.list,
+                    .f = ~split(.x, seq(nrow(.x))) %>% 
+                      purrr::map(.x = ., .f = ~ as.data.frame(.x)) %>%
+                      purrr::map(.x = ., .f = ~c(.$.x, .$.y)) %>% 
+                      purrr::map(.x = ., .f = ~rerddap::griddap(x = datInfo,
+                                                                longitude = c(extent(region.shp)[1], extent(region.shp)[2]),
+                                                                latitude = c(extent(region.shp)[3], extent(region.shp)[4]),
+                                                                time = .x,
+                                                                fields = variable.name))) %>% 
+    purrr::flatten(.) %>% 
+    purrr::map(.x = ., .f = ~.x$data) %>% 
+    bind_rows(.) %>% 
+    as_tibble(.)
+  
+  message('Creating climatology ...')
+  
+  # Calculate climatology
+  
+  climg <- dat %>% 
+    dplyr::group_by(lon, lat) %>% 
+    dplyr::summarize_at(.vars = variable.name, .funs = mean)
+  
+  # Raster extent
+  
+  rex <- climg[[1]][, c("lon", "lat")]
+  coordinates(rex) <- ~ lon + lat
+  proj4string(rex) <- CRSll
+  rex <- raster::raster(rex)
+  
+  message('Producing rasters ...')
+  
+  # Generate rasters (and store in stack)
+  
+  if(rmatch){
+    
+    r <- purrr::map(.x = climg,
+                    .f = ~ raster::rasterize(x = .x[, c("lon", "lat")], 
+                                             y = rex, 
+                                             field = .x[,c(variable.name)], 
+                                             fun = mean) %>% 
+                      raster::projectRaster(from = ., to = raster.dest) %>% 
+                      raster::crop(., sp::spTransform(region.shp, CRSutm)) %>% 
+                      raster::mask(., sp::spTransform(region.shp, CRSutm))) %>% 
+      raster::stack(unlist(.))
+    
+  }else{
+    
+    r <- purrr::map(.x = climg,
+                    .f = ~ raster::rasterize(x = .x[, c("lon", "lat")], 
+                                             y = rex, 
+                                             field = .x[,c(variable.name)], 
+                                             fun = mean) %>% 
+                      raster::projectRaster(from = ., crs = CRSutm) %>% 
+                      raster::crop(., sp::spTransform(region.shp, CRSutm)) %>% 
+                      raster::mask(., sp::spTransform(region.shp, CRSutm))) %>% 
+      raster::stack(unlist(.))
+    
+  }
+  
+  return(r)
+  
+}
+
 #' ====================================
 # DATA IMPORT ====
 #' ====================================
@@ -215,7 +334,7 @@ gps <- purrr::map(.x = gps, .f = function(x) chr2fac(x))
 #'---------------------------------------------
 
 bw <- bw %>% 
-  mutate(year = lubridate::year(date))
+  dplyr::mutate(year = lubridate::year(date))
 
 #'---------------------------------------------
 # Extracts relevant data
@@ -279,6 +398,21 @@ timor_utm <- sp::spTransform(timor, CRSutm)
 
 timor_sf <- sf::st_as_sf(timor)
 timor_sf_utm <- sf::st_as_sf(timor_utm)  
+
+#'---------------------------------------------
+# Submarine canyons
+#'---------------------------------------------
+# From Harris and Whiteway (2011). Global distribution of large submarine canyons: Geomorphic differences between active and passive continental margins. Marine Geology, 285(1-4): 69-86.
+# Canyon types: 1. shelf-incising and river associated; 
+# 2. shelf-incising; and 3. blind.
+
+canyons <- raster::shapefile("gis/global_canyons.shp")
+canyons <- raster::crop(x = canyons, 
+                        y = rgeos::gBuffer(spgeom = study.area, width = 0.2))
+canyons_utm <- sp::spTransform(canyons, CRSutm)
+
+
+# canyons_incising <- canyons_utm[canyons_utm@data$class==2,]
 
 #'---------------------------------------------
 # Creates spatial lines for each survey day
@@ -454,8 +588,10 @@ depth <- raster::crop(x = depth, y = extent(study.area_utm))
 # Quick plot
 
 plot(depth, col = pals::parula(100))
-plot(coast_utm, add=T, col="lightgrey")
-plot(study.area_utm, add=T)
+plot(coast_utm, add = T, col = "lightgrey")
+plot(study.area_utm, add = T)
+plot(canyons_utm, add = T)
+
 
 #'---------------------------------------------
 # Seabed slope
@@ -491,7 +627,7 @@ rdf <- SpatialPoints(rdf[,1:2], CRSutm) # Converts to SpatialPts
 
 dc <-  rgeos::gDistance(spgeom1 = coast_utm, 
                       spgeom2 = rdf, 
-                      byid=TRUE)
+                      byid = TRUE)
 
 # To get the nearest distance to any feature, apply min over rows
   
@@ -501,7 +637,43 @@ dist_coast <- raster::rasterFromXYZ(xyz = dist_coast, crs = CRSutm)
 
 plot(dist_coast, col = pals::parula(100))
 plot(coast_utm, add = T, col = "lightgrey")
+plot(study.area_utm, add = T)
+
+#'---------------------------------------------
+# Distance to nearest canyon
+#'---------------------------------------------
+
+# All canyons included
+
+dcanyons <-  rgeos::gDistance(spgeom1 = canyons_utm, 
+                              spgeom2 = rdf, 
+                              byid = TRUE)
+
+# To get the nearest distance to any feature, apply min over rows
+
+dist_canyons <- apply(dcanyons, 1, min)
+dist_canyons <- cbind(sp::coordinates(rdf), dist_canyons)
+dist_canyons <- raster::rasterFromXYZ(xyz = dist_canyons, crs = CRSutm)
+
+plot(dist_canyons, col = pals::parula(100))
+plot(coast_utm, add = T, col = "lightgrey")
 plot(study.area_utm, add=T)
+plot(canyons_utm, add = T)
+
+# Only shelf-incising canyon
+
+dcanyons.incising <-  rgeos::gDistance(spgeom1 = canyons_utm[canyons_utm@data$class == 2,], spgeom2 = rdf, byid = TRUE)
+
+# To get the nearest distance to any feature, apply min over rows
+
+dist_incising <- apply(dcanyons.incising, 1, min)
+dist_incising <- cbind(sp::coordinates(rdf), dist_incising)
+dist_incising <- raster::rasterFromXYZ(xyz = dist_incising, crs = CRSutm)
+
+plot(dist_incising, col = pals::parula(100))
+plot(coast_utm, add = T, col = "lightgrey")
+plot(study.area_utm, add=T)
+plot(canyons_utm, add = T)
   
 #'---------------------------------------------
 # Sea Surface Temperature (SST)
@@ -512,38 +684,46 @@ plot(study.area_utm, add=T)
 # First determine the temporal variability of the system.
 # MUR (Multi-scale Ultra-high Resolution) is an analyzed SST product at 0.01-degree resolution going back to 2002.
 
-sstInfo <- info('jplMURSST41')
+sstInfo <- rerddap::info('jplMURSST41')
 
 # Define a location at which to assess temperature time series
 
-buoy <- sp::spsample(x = study.area, n = 1, type = "random")
-
+buoy <- sp::SpatialPoints(coords = cbind(126.25, -9.55))
 plot(study.area); points(buoy) # Quick plot
 
-# Retrieve daily sst between 2012 and 2018
+# Retrieve daily sst between 2002 and 2018
 
 sst.buoy <- rerddap::griddap(x = sstInfo, 
                              longitude = rep(coordinates(buoy)[1], 2), 
                              latitude = rep(coordinates(buoy)[2], 2), 
-                             time = c('2012-01-01','2018-12-31'),
+                             time = c('2002-06-01','2018-12-31'),
                              fields = 'analysed_sst')
 
 # Extract date/time and sst values
 
 sst.buoy <- list(erddap = sst.buoy)
+
 sst.buoy$data <- tibble(date = as.Date(sst.buoy$erddap$data$time,
                                        origin = '1970-01-01', tz = "GMT"),
                                        sst = sst.buoy$erddap$data$analysed_sst)
 
 # Plot time series
 
+pdf("figures/Figure-S1a.pdf", height = 4, width = 10)
 par(las=1)
-plot.ts(ts(sst.buoy$data$sst, frequency = 365, start = c(2012,1)),
-        xlab = NA, ylab = "SST (°C)")
+plot.ts(ts(sst.buoy$data$sst, frequency = 365, start = c(2002,1)),
+        xlab = NA, ylab = "SST (°C)", axes = FALSE)
+time.labels <- seq(as.Date('2002-06-01'), as.Date('2018-12-31'), by = "12 months") 
+axis(2)
+axis(1, labels = lubridate::year(time.labels), 
+     at = seq(from = 2002, by = 1, length.out = length(time.labels)))
+box()
+box()
+dev.off() 
+
 
 # Perform wavelet analysis
 
-require(WaveletComp)
 wavelet.timor <- WaveletComp::analyze.wavelet(my.data = sst.buoy$data,
                                               my.series = "sst",
                                               loess.span = 0,
@@ -551,11 +731,12 @@ wavelet.timor <- WaveletComp::analyze.wavelet(my.data = sst.buoy$data,
                                               lowerPeriod = 1,
                                               upperPeriod = 1500,
                                               make.pval = FALSE,
-                                              n.sim = 1000,
+                                              n.sim = 100,
                                               date.format = "%Y-%m-%d")
 
 # Plot wavelet power spectrum
 
+pdf("figures/Figure-S1b.pdf", height = 5, width = 8)
 WaveletComp::wt.image(wavelet.timor, 
                       exponent = 1,
                       plot.coi = TRUE,
@@ -564,15 +745,25 @@ WaveletComp::wt.image(wavelet.timor,
                       n.levels = 100,
                       show.date = TRUE,
                       timelab = "",
+                      spec.time.axis = list(at = time.labels, 
+                                            labels = lubridate::year(time.labels)),
                       periodlab = "",
                       legend.params = list(n.ticks = 15, 
                                            label.digits = 1))
+dev.off()
 
 # Wavelet power averages across time
 
-WaveletComp::wt.avg(wavelet.timor, siglvl = 0.05, sigcol = "blue")
+WaveletComp::wt.avg(wavelet.timor, siglvl = 0.001, sigcol = "blue")
 
-# Create SST climatologies
+
+
+
+
+
+plot(sst.test)
+
+
 
 #'---------------------------------------------
 # Fronts
