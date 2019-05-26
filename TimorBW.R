@@ -355,17 +355,40 @@ bw.pts <- bw %>%
   dplyr::filter(resighted == "Not a duplicate")
 
 #'---------------------------------------------
-# Distributon of records in time
+# Add seasons and plot distribution of obs through time
 #'---------------------------------------------
 
+# Samaran et al. (2013)'s definition of seasons for southern hemisphere blue whales:
+# Summer: December–February
+# Autumn: March–May
+# Winter: June–August
+# Spring: September–November. 
+
+# Here:
+# Winter = July to September
+# Spring/Summer = September to February
+
+# bw %>%
+#   dplyr::mutate(month = lubridate::month(date)) %>%
+#   dplyr::mutate(twoseasons = ifelse(dplyr::between(month, 7, 8),
+#                                 'Winter', 'Summer'))
+
+bw <- bw %>% dplyr::mutate(t.seasons = ifelse(season == 'Spring', 'Summer', 'Winter'))
+
+  
 timeline <- bw %>% 
-  dplyr::select(date) %>% 
+  dplyr::select(date, t.seasons) %>% 
   dplyr::mutate(top = 1)
 
 timeline.plot <- ggplot(data = timeline, aes(date)) +
 geom_ribbon(aes(ymin = 0, ymax = top, 
                 colour = as.factor(date)), alpha=0.1) +
   theme(legend.position = "none")
+
+# Sighting summary per season
+
+bw %>% dplyr::group_by(t.seasons) %>% 
+  count()
 
 
 #' =============================
