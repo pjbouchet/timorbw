@@ -10,7 +10,7 @@
 #' ------------------------------------------------------------------------
 #' ------------------------------------------------------------------------
 
-# Examples of github repositories
+# Examples of github repositories and how they are structured
 # https://github.com/dbarneche/fishEggSize
 # https://github.com/cboettig/noise-phenomena
 
@@ -19,7 +19,7 @@
 #' ====================================
 
 #'--------------------------------------------------------------------------
-# Loops through the  list and loads (+ installs if needed) all packages
+# Loop through the  list and load (+ install if needed) all packages
 #'--------------------------------------------------------------------------
 
 # Note: sf requires GDAL, which can be tricky to install on some OS
@@ -31,32 +31,32 @@
 # devtools::install_github("seananderson/ggsidekick")
 # devtools::install_github("dkahle/ggmap", ref = "tidyup")
 
-pack<-c("tidyverse", # Tidyverse
-        "raster", # Raster and GIS operations
-        "rgdal", # Working with geospatial data
-        "rgeos", # Topology operations on geometries
-        "pals", # Colour palettes (parula)
-        "sf", # Simple features
-        "WaveletComp", # Wavelet analysis
-        "SDMTools", # Tools for processing data in SDMs
-        "lubridate", # Date handling
-        "rnaturalearth", # Shapefiles and Earth data
-        "ggplot2", # Graphics
-        "purrrlyr", # Intersection of purrr/dplyr
-        "scales", # For comma format on plots
-        "ggsidekick", # Nice ggplot theme by Sean Anderson 
-        "rerddap", # R client for working with ERDDAP servers
-        "janitor") # Data cleaning 
+pack <- c("tidyverse", # Tidyverse
+          "raster", # Raster and GIS operations
+          "rgdal", # Working with geospatial data
+          "rgeos", # Topology operations on geometries
+          "pals", # Colour palettes (parula)
+          "sf", # Simple features
+          "WaveletComp", # Wavelet analysis
+          "SDMTools", # Tools for processing data in SDMs
+          "lubridate", # Date handling
+          "rnaturalearth", # Shapefiles and Earth data
+          "ggplot2", # Graphics
+          "purrrlyr", # Intersection of purrr/dplyr
+          "scales", # For comma format on plots
+          "ggsidekick", # Nice ggplot theme by Sean Anderson 
+          "rerddap", # R client for working with ERDDAP servers
+          "janitor") # Data cleaning 
 
 for (i in 1:length(pack)){
-  p<-pack[i]
+  p <- pack[i]
   if(as.character(p) %in% rownames(installed.packages())==TRUE){
     library(p, character.only = TRUE)
   }else{install.packages(p)
     library(p, character.only = TRUE)}
 }
 
-# Gets the latest install of ggmap
+# Get the latest install of ggmap
 # if(!requireNamespace("devtools")) install.packages("devtools")
 # devtools::install_github("dkahle/ggmap", ref = "tidyup", force=TRUE)
 
@@ -66,7 +66,7 @@ for (i in 1:length(pack)){
 
 library(ggmap)
 
-set.seed(87)
+set.seed(87) # Reproducible results
 
 #'---------------------------------------------
 # Set tibble options
@@ -184,12 +184,11 @@ createLines <- function(df){
   Sldf <- SpatialLinesDataFrame(df.L, data = df)
   return(Sldf)}
 
-
 # Function to generate climatologies from errdapp data
 
 get_climatology <- function(dataset,
                             variable.name,
-                            window = 8, # in days
+                            time.window = 8, # in days
                             no.years = 15,
                             region.shp = study.area,
                             rmatch = TRUE,
@@ -207,22 +206,32 @@ get_climatology <- function(dataset,
   
   # Generate date windows
   
-  start.dates <- seq(ymd(date.start), ymd(date.end), 
-                     by = paste0(window, ' days'))
+  start.dates <- seq(lubridate::ymd(date.start), 
+                     lubridate::ymd(date.end), 
+                     by = paste0(time.window, ' days'))
   
-  end.dates <- seq(ymd(date.start) + days(window-1), ymd(date.end), 
-                   by = paste0(window, ' days'))
+  if(lubridate::ymd(date.end)-lubridate::ymd(date.start)<time.window){
+    
+    end.dates <- lubridate::ymd(date.start) + lubridate::days(time.window-1)
+    
+  }else{
+  
+    end.dates <- seq(lubridate::ymd(date.start) + lubridate::days(time.window-1), 
+                   lubridate::ymd(date.end), 
+                   by = paste0(time.window, ' days'))
+  }
   
   # Adjust end dates if necessary
   
-  if(length(end.dates)<length(start.dates)) end.dates <- c(end.dates, start.dates[length(start.dates)]+ days(window-1))
+  if(length(end.dates)<length(start.dates)) end.dates <- c(end.dates, start.dates[length(start.dates)]+ days(time.window-1))
   
   start.dates <- purrr::map(.x = start.dates,
                             .f = ~rev(seq(ymd(.x), length = no.years, by = "-1 year"))) 
   
   end.dates <- purrr::map(.x = end.dates,
-                          .f = ~rev(seq(ymd(.x), length = no.years, by = "-1 year"))) %>%
-    purrr::map(.x = ., .f = ~as.list(.x))
+                          .f = ~rev(seq(ymd(.x), length = no.years, by = "-1 year"))) 
+  # %>%
+  #   purrr::map(.x = ., .f = ~as.list(.x))
   
   dates.list <- purrr::map2(.x = start.dates,
                             .y = end.dates,
@@ -314,14 +323,14 @@ gps$`2007` <- readr::read_tsv(file.path(dataDir, "gps_albacora07.txt"))
 gps$`2008` <- readr::read_tsv(file.path(dataDir, "gps_bicuda08.txt"))
 
 #'---------------------------------------------
-# Cleans column names
+# Clean column names
 #'---------------------------------------------
 
 bw <- bw %>% janitor::clean_names()
 gps <- purrr::map(.x = gps, .f = function(x) janitor::clean_names(x))
 
 #'---------------------------------------------
-# Formats columns
+# Format columns
 #'---------------------------------------------
 
 bw$date <- as.Date(bw$date, "%yy-%mm-%dd") # date
@@ -330,14 +339,14 @@ bw <- chr2fac(bw) # Converts all character variables to factors
 gps <- purrr::map(.x = gps, .f = function(x) chr2fac(x))
 
 #'---------------------------------------------
-# Adds year column
+# Add year column
 #'---------------------------------------------
 
 bw <- bw %>% 
   dplyr::mutate(year = lubridate::year(date))
 
 #'---------------------------------------------
-# Extracts relevant data
+# Extract relevant data
 #'---------------------------------------------
 
 bw.pts <- bw %>% 
@@ -350,14 +359,14 @@ bw.pts <- bw %>%
 #' =============================
 
 #'---------------------------------------------
-# Defines projections
+# Define projections
 #'---------------------------------------------
 
 CRSll <- sp::CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
 CRSutm <- sp::CRS("+proj=utm +zone=51 +south +ellps=WGS84 +datum=WGS84 +units=m +no_defs")
 
 #'---------------------------------------------
-# Downloads world polygon
+# Download world polygon
 #'---------------------------------------------
 
 land <- rnaturalearth::ne_countries(type = 'countries', 
@@ -374,7 +383,7 @@ coast <- raster::shapefile(file.path("gis", "timor_leste.shp"))
 coast_utm <- sp::spTransform(coast, CRSutm)
 
 #'---------------------------------------------
-# Defines study area extent
+# Define study area extent
 #'---------------------------------------------
 
 bw.ext <- as(extent(c(121, 132, -16, -7.5)), "SpatialPolygons")
@@ -390,7 +399,7 @@ sp::proj4string(study.area) <- CRSll
 study.area_utm <- sp::spTransform(study.area, CRSutm)
 
 #'---------------------------------------------
-# Crops land
+# Crop land
 #'---------------------------------------------
 
 timor <- raster::crop(land, bw.ext)
@@ -415,20 +424,20 @@ canyons_utm <- sp::spTransform(canyons, CRSutm)
 # canyons_incising <- canyons_utm[canyons_utm@data$class==2,]
 
 #'---------------------------------------------
-# Creates spatial lines for each survey day
+# Create spatial lines for each survey day
 #'---------------------------------------------
 
 # Need a character string for each date
 
 gps <- purrr::map(.x = gps, .f = function(x) mutate(.data = x, datechr = as.character(date)))
 
-# Generates lines
+# Generate lines
 
 gps.trks <- purrr::map(gps, ~.x %>% 
              split(.$datechr) %>% 
              purrr::map(., ~ createLines(.)))
 
-# Combines all tracks from 2007/2008
+# Combine all tracks from 2007/2008
 
 gps.07 <- do.call(rbind, gps.trks$`2007`)
 gps.08 <- do.call(rbind, gps.trks$`2008`)
@@ -438,7 +447,7 @@ gps.08 <- do.call(rbind, gps.trks$`2008`)
 gps.07@data$time <- as.character(gps.07@data$time)
 gps.08@data$time <- as.character(gps.08@data$time)
 
-# Exports shapefiles
+# Export shapefiles
 
 # rgdal::writeOGR(obj = gps.07, dsn = file.path("gis"),
 #                 layer = "gps_tracks_2007", driver="ESRI Shapefile")
@@ -457,7 +466,7 @@ gps.08@data$time <- as.character(gps.08@data$time)
 # ggmap::register_google(key = "AIzaSyAxvafx12hSaL5pMlJlOeXLBW0G5Bypvxw")
 
 #'---------------------------------------------
-# Downloads basemap
+# Download basemap
 #'---------------------------------------------
 
 gmap.timor <- ggmap::get_googlemap(center = c(lon=126,lat=-9.4),
@@ -471,7 +480,7 @@ gmap.timor <- ggmap::get_googlemap(center = c(lon=126,lat=-9.4),
 # ggmap(gmap.timor)
 
 #'---------------------------------------------
-# Fortifies lines for plotting
+# Fortify lines for plotting
 #'---------------------------------------------
 
 # Would normally convert to simple features, but transparency not implemented for lines yet
@@ -756,14 +765,17 @@ dev.off()
 
 WaveletComp::wt.avg(wavelet.timor, siglvl = 0.001, sigcol = "blue")
 
+# SST climatology
 
-
-
-
-
-plot(sst.test)
-
-
+sst_climg <- get_climatology(dataset = 'jplMURSST41', # MUR high resolution SST
+                            variable.name = 'analysed_sst',
+                            time.window = 8, # 8-day average
+                            no.years = 15, # Over a period of 15 years
+                            region.shp = study.area,
+                            rmatch = TRUE, # Resample output rasters
+                            raster.dest = depth, # To the same resolution as depth raster
+                            date.start = '2017-04-07', # Start date of period of interest
+                            date.end = '2017-05-07') # End date of period of interest
 
 #'---------------------------------------------
 # Fronts
