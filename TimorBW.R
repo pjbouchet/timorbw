@@ -354,6 +354,20 @@ bw.pts <- bw %>%
   dplyr::filter(obs_type == "Dedicated") %>% 
   dplyr::filter(resighted == "Not a duplicate")
 
+#'---------------------------------------------
+# Distributon of records in time
+#'---------------------------------------------
+
+timeline <- bw %>% 
+  dplyr::select(date) %>% 
+  dplyr::mutate(top = 1)
+
+timeline.plot <- ggplot(data = timeline, aes(date)) +
+geom_ribbon(aes(ymin = 0, ymax = top, 
+                colour = as.factor(date)), alpha=0.1) +
+  theme(legend.position = "none")
+
+
 #' =============================
 # GIS SHAPEFILES ====
 #' =============================
