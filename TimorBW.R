@@ -246,41 +246,47 @@ get_climatology <- function(dataset,
                       purrr::map(.x = ., .f = ~ as.data.frame(.x)) %>%
                       purrr::map(.x = ., .f = ~c(.$.x, .$.y)) %>% 
                       purrr::map(.x = ., .f = ~rerddap::griddap(x = datInfo,
-                                                                longitude = c(extent(region.shp)[1], extent(region.shp)[2]),
-                                                                latitude = c(extent(region.shp)[3], extent(region.shp)[4]),
-                                                                time = .x,
-                                                                fields = variable.name))) %>% 
-    purrr::flatten(.) %>% 
-    purrr::map(.x = ., .f = ~.x$data) %>% 
-    bind_rows(.) %>% 
-    as_tibble(.)
+                                 longitude = c(extent(region.shp)[1], 
+                                               extent(region.shp)[2]),
+                                 latitude = c(extent(region.shp)[3], 
+                                              extent(region.shp)[4]),
+                                 time = .x, fields = variable.name)))
+  
+  dat <- purrr::map(.x = dat,
+                    .f = ~purrr::map(.x = ., .f = ~.x$data) %>% 
+                      bind_rows(.) %>% as_tibble(.))
   
   message('Creating climatology ...')
   
   # Calculate climatology
   
-  climg <- dat %>% 
-    dplyr::group_by(lon, lat) %>% 
-    dplyr::summarize_at(.vars = variable.name, .funs = mean)
+  climg <- purrr::map(.x = dat,
+                      .f = ~.x %>%
+                        dplyr::group_by(lon, lat) %>% 
+                        dplyr::summarize_at(.vars = variable.name, .funs = mean) %>% 
+                        dplyr::ungroup())
   
-  # Raster extent
+  # Set up an 'empty' raster via an extent object derived from the data
   
-  rex <- climg[[1]][, c("lon", "lat")]
-  coordinates(rex) <- ~ lon + lat
-  proj4string(rex) <- CRSll
-  rex <- raster::raster(rex)
+  e <- climg[[1]] %>% 
+    dplyr::select(lon, lat) %>% 
+    dplyr::rename(x = lon, y = lat) %>% 
+    raster::extent()
   
+  r <- raster::raster(e, nrows = sqrt(nrow(climg[[1]])), ncols = sqrt(nrow(climg[[1]])))
+  proj4string(r) <- CRSll
+
   message('Producing rasters ...')
   
   # Generate rasters (and store in stack)
   
   if(rmatch){
     
-    r <- purrr::map(.x = climg,
+    rasOut <- purrr::map(.x = climg,
                     .f = ~ raster::rasterize(x = .x[, c("lon", "lat")], 
-                                             y = rex, 
-                                             field = .x[,c(variable.name)], 
-                                             fun = mean) %>% 
+                                        y = r, 
+                                        field = .x[,variable.name], 
+                                        fun = mean) %>% 
                       raster::projectRaster(from = ., to = raster.dest) %>% 
                       raster::crop(., sp::spTransform(region.shp, CRSutm)) %>% 
                       raster::mask(., sp::spTransform(region.shp, CRSutm))) %>% 
@@ -288,11 +294,11 @@ get_climatology <- function(dataset,
     
   }else{
     
-    r <- purrr::map(.x = climg,
+    rasOut <- purrr::map(.x = climg,
                     .f = ~ raster::rasterize(x = .x[, c("lon", "lat")], 
-                                             y = rex, 
-                                             field = .x[,c(variable.name)], 
-                                             fun = mean) %>% 
+                                             y = r, 
+                                        field = .[,c(variable.name)], 
+                                        fun = mean) %>% 
                       raster::projectRaster(from = ., crs = CRSutm) %>% 
                       raster::crop(., sp::spTransform(region.shp, CRSutm)) %>% 
                       raster::mask(., sp::spTransform(region.shp, CRSutm))) %>% 
@@ -300,7 +306,11 @@ get_climatology <- function(dataset,
     
   }
   
-  return(r)
+  names(rasOut) <- seq(lubridate::ymd(date.start), 
+                       lubridate::ymd(date.end), 
+                       by = paste0(time.window, ' days'))
+  
+  return(rasOut)
   
 }
 
@@ -751,9 +761,7 @@ sst.buoy <- list(erddap = sst.buoy)
 
 sst.buoy$data <- tibble(date = as.Date(sst.buoy$erddap$data$time,
                                        origin = '1970-01-01', tz = "GMT"),
-                                       sst = sst.buoy$erddap$data$analysed_sst)
-
-# Plot time series
+                        sst = sst.buoy$erddap$data$analysed_sst)
 
 pdf("figures/Figure-S1a.pdf", height = 4, width = 10)
 par(las=1)
@@ -811,8 +819,37 @@ sst_climg <- get_climatology(dataset = 'jplMURSST41', # MUR high resolution SST
                             region.shp = study.area,
                             rmatch = TRUE, # Resample output rasters
                             raster.dest = depth, # To the same resolution as depth raster
-                            date.start = '2017-04-07', # Start date of period of interest
+                            date.start = '2018-07-06', # Start date of period of interest
                             date.end = '2017-05-07') # End date of period of interest
+
+#'---------------------------------------------
+# Chlorophyll-a
+#'---------------------------------------------
+
+# Aqua MODIS, NPP, L3SMI, Global, 4km, Science Quality, 2003-present (1 Day Composite)
+
+chlaInfo <- rerddap::info('erdMH1chla1day')
+
+# Retrieve daily sst between 2012 and 2018
+
+chla.buoy <- rerddap::griddap(x = chlaInfo, 
+                              longitude = rep(coordinates(buoy)[1], 2), 
+                              latitude = rep(coordinates(buoy)[2], 2), 
+                              time = c('2003-01-01','2018-12-31'),
+                              fields = 'chlorophyll')
+
+# Extract date/time and chla values
+
+chla.buoy <- list(erddap = chla.buoy)
+
+chla.buoy$data <- tibble(date = as.Date(chla.buoy$erddap$data$time,
+                                        origin = '1970-01-01', tz = "GMT"),
+                         chla = chla.buoy$erddap$data$chlorophyll)
+
+# Plot time series
+
+plot.ts(ts(chla.buoy$data$chla, frequency = 365, start = c(2003,1)),
+        xlab = NA, ylab = "Chl-a (mg.m-3)", axes = TRUE)
 
 #'---------------------------------------------
 # Fronts
@@ -823,8 +860,12 @@ sst_climg <- get_climatology(dataset = 'jplMURSST41', # MUR high resolution SST
 # https://rdrr.io/github/galuardi/boaR/man/boaR-package.html
 # https://github.com/LuisLauM/grec
   
+
+#'---------------------------------------------
+# Extract values from rasters
+#'---------------------------------------------
   
-  
+# lubridate::yday
   
 
 

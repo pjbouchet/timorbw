@@ -1,7 +1,6 @@
 .Rproj.user
 .Rhistory
-.RData
 .Ruserdata
-packrat/lib*/
+.RData
 data
 gmap.timor.RData
