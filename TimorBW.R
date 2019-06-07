@@ -13,10 +13,15 @@
 # Examples of github repositories and how they are structured
 # https://github.com/dbarneche/fishEggSize
 # https://github.com/cboettig/noise-phenomena
+# 
+# Front detection
+# devtools::install_github("galuardi/boaR")
 
 #' ====================================
 # LIBRARIES, SETTINGS ====
 #' ====================================
+
+load('~/OneDrive/Documents/Git/timorbw/.RData')
 
 #'--------------------------------------------------------------------------
 # Loop through the  list and load (+ install if needed) all packages
@@ -60,8 +65,8 @@ for (i in 1:length(pack)){
 # if(!requireNamespace("devtools")) install.packages("devtools")
 # devtools::install_github("dkahle/ggmap", ref = "tidyup", force=TRUE)
 
-# Also, Google has changed its policies. For use after July 2018, need to
-# log on to Google Cloud Platform, create project, generate API key and enable billing
+# Also, Google has recently changed its policies. For use after July 2018, need to
+# log on to Google Cloud Platform, create a project, generate API key and enable billing
 # https://stackoverflow.com/questions/52565472/get-map-not-passing-the-api-key-http-status-was-403-forbidden
 
 library(ggmap)
@@ -241,16 +246,37 @@ get_climatology <- function(dataset,
   
   message('Downloading data ...')
   
+  listlg <- purrr::map(.x = dates.list, .f = ~split(.x, seq(nrow(.x)))) %>% flatten(.) %>% length(.)
+  
+  pb <- dplyr::progress_estimated(listlg) # Set up progress bar
+  
+  # rerddap::griddap that prints a progress bar when called with purrr
+  
+  satellite.dat <- function(data.info, lon.extent, lat.extent, timespan, field.name){
+    
+    pb$tick()$print()
+    
+    rerddap::griddap(x = data.info,
+                     longitude = lon.extent,
+                     latitude = lat.extent,
+                     time = timespan, fields = field.name)
+    
+  }
+  
   dat <- purrr::map(.x = dates.list,
                     .f = ~split(.x, seq(nrow(.x))) %>% 
                       purrr::map(.x = ., .f = ~ as.data.frame(.x)) %>%
                       purrr::map(.x = ., .f = ~c(.$.x, .$.y)) %>% 
-                      purrr::map(.x = ., .f = ~rerddap::griddap(x = datInfo,
-                                 longitude = c(extent(region.shp)[1], 
-                                               extent(region.shp)[2]),
-                                 latitude = c(extent(region.shp)[3], 
-                                              extent(region.shp)[4]),
-                                 time = .x, fields = variable.name)))
+                      purrr::map(.x = ., 
+                                 .f = ~satellite.dat(data.info = datInfo,
+                                                     lon.extent = c(extent(region.shp)[1], 
+                                                                    extent(region.shp)[2]),
+                                                     lat.extent = c(extent(region.shp)[3], 
+                                                                    extent(region.shp)[4]),
+                                                     timespan = .x, 
+                                                     field.name = variable.name),
+                                 .pb = pb))
+                                  
   
   dat <- purrr::map(.x = dat,
                     .f = ~purrr::map(.x = ., .f = ~.x$data) %>% 
@@ -260,11 +286,23 @@ get_climatology <- function(dataset,
   
   # Calculate climatology
   
-  climg <- purrr::map(.x = dat,
-                      .f = ~.x %>%
-                        dplyr::group_by(lon, lat) %>% 
-                        dplyr::summarize_at(.vars = variable.name, .funs = mean) %>% 
-                        dplyr::ungroup())
+  # Function to summarise the data into climatology.
+  # Prints a progress bar when called with purrr
+  
+  build.climg <- function(dat, fieldname){
+    
+    pb$tick()$print()
+    
+      dat %>% 
+      dplyr::group_by(lon, lat) %>% 
+      dplyr::summarize_at(.vars = fieldname, .funs = mean) %>% 
+      dplyr::ungroup()
+    
+  }
+  
+  pb <- dplyr::progress_estimated(length(dat)) # Set up progress bar
+  
+  climg <- purrr::map(.x = dat, .f = ~build.climg(dat = .x, fieldname = variable.name), .pb = pb)
   
   # Set up an 'empty' raster via an extent object derived from the data
   
@@ -735,6 +773,8 @@ plot(canyons_utm, add = T)
 # Sea Surface Temperature (SST)
 #'---------------------------------------------
 
+# Fernandez et al. (2018) A matter of timing: how temporal scale selection influences cetacean ecological niche modelling -> 8-day means best for modelling.
+
 # https://cran.r-project.org/web/packages/rerddap/vignettes/Using_rerddap.html
 
 # First determine the temporal variability of the system.
@@ -815,12 +855,12 @@ WaveletComp::wt.avg(wavelet.timor, siglvl = 0.001, sigcol = "blue")
 sst_climg <- get_climatology(dataset = 'jplMURSST41', # MUR high resolution SST
                             variable.name = 'analysed_sst',
                             time.window = 8, # 8-day average
-                            no.years = 15, # Over a period of 15 years
+                            no.years = 10, # Over a period of 15 years
                             region.shp = study.area,
                             rmatch = TRUE, # Resample output rasters
                             raster.dest = depth, # To the same resolution as depth raster
-                            date.start = '2018-07-06', # Start date of period of interest
-                            date.end = '2017-05-07') # End date of period of interest
+                            date.start = '2011-07-06', # Start date of period of interest
+                            date.end = '2012-01-11') # End date of period of interest
 
 #'---------------------------------------------
 # Chlorophyll-a
@@ -860,6 +900,10 @@ plot.ts(ts(chla.buoy$data$chla, frequency = 365, start = c(2003,1)),
 # https://rdrr.io/github/galuardi/boaR/man/boaR-package.html
 # https://github.com/LuisLauM/grec
   
+# Bedrinana-Romano et al. - Daily MUR images; single- image- edge-detection (SIED) algorithm with a threshold detection of 0.5°C
+# Gonzalez Garcia - Canny edge detection function [57] with the upper threshold set at 1e-5 ̊C/m (~1 ̊C/ 100 km).
+# 
+# Scales et al. here 0.4 8C for SIED
 
 #'---------------------------------------------
 # Extract values from rasters
