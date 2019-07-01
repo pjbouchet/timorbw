@@ -208,7 +208,7 @@ get_wkclimatology <- function(remote.dataset,
                               climg.direction = 'backwards',
                               region.shp = NULL,
                               rmatch = TRUE,
-                              raster.dest = depth){
+                              raster.dest = NULL){
   
   #'-----------------------------------------------------------
   # PARAMETERS
@@ -238,11 +238,8 @@ get_wkclimatology <- function(remote.dataset,
   #'---------------------------------------------
   
   if(!class(remote.dataset)=="character") stop('Dataset name must be a character vector')
-  if(!span.direction%in%c('backward', 'forward', 'centre')) stop('Unrecognised direction')
-  if(!is.numeric(time.window) | !is.numeric(no.years)) stop('Non-numeric inputs to time.window')
-  if(!is.null(match.df)){
-    if(!'wkstart'%in%names(match.df)) stop('Cannot find wkstart column in match.df')}
-  if(t.start>t.end) stop('Start time cannot be later than end time')
+  if(!climg.direction%in%c('backwards', 'forwards', 'centered')) stop('Unrecognised direction')
+  if(!is.numeric(t.year) | !is.numeric(no.years) | !is.numeric(start.month) | !is.numeric(end.month)) stop('Non-numeric inputs to time.window')
   if(!class(raster.dest)=='RasterLayer') stop('Input raster must be of class RasterLayer')
   if(!class(region.shp)%in%c('SpatialPolygonsDataFrame', 'SpatialPolygons')) stop('Input raster must be of class RasterLayer')
   
@@ -262,10 +259,16 @@ get_wkclimatology <- function(remote.dataset,
   
   t.start <- lubridate::ymd(paste0(t.year, '-', start.month, '-', 1))
   
+  
   if(end.month%in%c(1, 3, 5, 7, 8, 10, 12)){
-    t.end <- lubridate::ymd(paste0(t.year, '-', end.month, '-', 31))
+    
+    if(end.month < start.month) t.end <- lubridate::ymd(paste0(t.year + 1, '-', end.month, '-', 31))
+    if(end.month >= start.month) t.end <- lubridate::ymd(paste0(t.year, '-', end.month, '-', 31))
+    
   }else{
-    t.end <- lubridate::ymd(paste0(t.year, '-', end.month, '-', 30))
+    
+    if(end.month < start.month) t.end <- lubridate::ymd(paste0(t.year + 1, '-', end.month, '-', 30))
+      if(end.month >= start.month) t.end <- lubridate::ymd(paste0(t.year, '-', end.month, '-', 30))
   }
   
   start.dates <- rnames <- seq(t.start, t.end, by = paste0(time.window, ' days'))
@@ -1027,16 +1030,27 @@ chla.buoy$data <- tibble(date = as.Date(chla.buoy$erddap$data$time,
 plot.ts(ts(chla.buoy$data$chla, frequency = 365, start = c(2003,1)),
         xlab = NA, ylab = "Chl-a (mg.m-3)", axes = TRUE)
 
-chl_climg <- get_climatology(remote.dataset = 'erdMH1chla1day', 
-                             variable.name = 'chlorophyll',
-                             time.window = 7, # 8-day average
-                             no.years = 10, # Over a period of 10 years
-                             span.direction = 'centre', # 10 yrs centred on date.start 
-                             region.shp = study.area,
-                             rmatch = TRUE, # Resample output rasters
-                             raster.dest = depth, # To the same resolution as depth raster
-                             date.start = min(bw$date), # Start date of period of interest
-                             date.end = max(bw$date)) # End date of period of interest
+chl_climg <- get_wkclimatology(remote.dataset = 'erdMH1chla1day', 
+                               variable.name = 'chlorophyll',
+                               t.year = 2007,
+                               start.month = 7, 
+                               end.month = 1,
+                               no.years = 10,
+                               climg.direction = 'centered', 
+                               region.shp = study.area,
+                               rmatch = TRUE,
+                               raster.dest = depth)
+                             
+get_wkclimatology <- function(remote.dataset,
+                              variable.name,
+                              t.year = 2017,
+                              start.month = 4, 
+                              end.month = 4,
+                              no.years = 15,
+                              climg.direction = 'backwards',
+                              region.shp = NULL,
+                              rmatch = TRUE,
+                              raster.dest = NULL
 
 # Check that values exist
 
