@@ -49,6 +49,7 @@ pack <- c("tidyverse", # Tidyverse
           "ggplot2", # Graphics
           "purrrlyr", # Intersection of purrr/dplyr
           "scales", # For comma format on plots
+          "cowplot", # For combining multiple ggplots
           "ggsidekick", # Nice ggplot theme by Sean Anderson 
           "rerddap", # R client for working with ERDDAP servers
           "janitor") # Data cleaning 
@@ -105,29 +106,45 @@ Sys.setenv(TZ = "Australia/West")
 #'---------------------------------------------
 
 make_map <- function(input.raster, 
-                        col.ramp = pals::parula(100),
-                        show.canyons = FALSE){
+                     col.ramp = pals::parula(100),
+                     show.canyons = FALSE){
   
+  #'-----------------------------------------------------------
+  # PARAMETERS
+  #'-----------------------------------------------------------
+  # @.input.raster = Raster to be mapped
+  # @.col.ramp = Desired colour ramp
+  # @.show.canyons = Boolean, whether or not to overlay canyon shapefile
+  #'-----------------------------------------------------------
+  
+  #'---------------------------------------------
   # Name of raster as legend title
+  #'---------------------------------------------
   
   raster.name <- deparse(substitute(input.raster))
   raster.name <- paste(toupper(substr(raster.name, 1, 1)), 
                       substr(raster.name, 2, nchar(raster.name)), sep="")
   raster.name <- gsub(pattern = "_", replacement = " ", raster.name)
   
+  #'---------------------------------------------
   # Ensure that raster is in lat/lon
+  #'---------------------------------------------
   
   if(!proj4string(input.raster)==as.character(CRSll)){
     input.raster <- raster::projectRaster(from = input.raster, crs = CRSll)
   }
   
+  #'---------------------------------------------
   # Stops execution if basemap does not exist
+  #'---------------------------------------------
   
   if(exists("gmap.timor")==FALSE) stop("Missing basemap")
   
   if(show.canyons) canyons.plot <- fortify(canyons)
   
+  #'---------------------------------------------
   # Convert to data.frame for plotting
+  #'---------------------------------------------
   
   input.raster <- raster::as.data.frame(input.raster, xy = TRUE)
   names(input.raster) <- c("lon", "lat", "z")
@@ -208,7 +225,8 @@ get_wkclimatology <- function(remote.dataset,
                               climg.direction = 'backwards',
                               region.shp = NULL,
                               rmatch = TRUE,
-                              raster.dest = NULL){
+                              raster.dest = NULL,
+                              error400 = TRUE){
   
   #'-----------------------------------------------------------
   # PARAMETERS
@@ -257,21 +275,48 @@ get_wkclimatology <- function(remote.dataset,
   # Generate weekly date windows
   #'---------------------------------------------
   
-  t.start <- lubridate::ymd(paste0(t.year, '-', start.month, '-', 1))
+  # Start January 1 and end December 24
   
+  t.start <- lubridate::ymd(paste0(t.year, '-', 1, '-', 1))
+  t.end <- lubridate::ymd(paste0(t.year, '-', 12, '-', 24))
   
-  if(end.month%in%c(1, 3, 5, 7, 8, 10, 12)){
-    
-    if(end.month < start.month) t.end <- lubridate::ymd(paste0(t.year + 1, '-', end.month, '-', 31))
-    if(end.month >= start.month) t.end <- lubridate::ymd(paste0(t.year, '-', end.month, '-', 31))
-    
-  }else{
-    
-    if(end.month < start.month) t.end <- lubridate::ymd(paste0(t.year + 1, '-', end.month, '-', 30))
-      if(end.month >= start.month) t.end <- lubridate::ymd(paste0(t.year, '-', end.month, '-', 30))
-  }
+  start.dates <- seq(t.start, t.end, by = paste0(time.window, ' days'))
   
-  start.dates <- rnames <- seq(t.start, t.end, by = paste0(time.window, ' days'))
+  # Adjust for end month in subsequent year
+  
+  if(end.month < start.month) start.dates <- c(start.dates, start.dates + lubridate::years(1))
+  
+  # Generate start dates with one week leeway on either side
+  
+  start.dates <- start.dates[(min(which(lubridate::month(start.dates)==start.month))-1):(max(which(lubridate::month(start.dates)==end.month))+1)]
+  
+  rnames <- gsub(pattern = paste0(t.year, '-'), replacement = '', x = start.dates)
+  
+  # Generate corresponding end dates
+  
+  end.dates <- start.dates + lubridate::days(time.window-1)
+
+  
+  # if(end.month < start.month) t.end <- lubridate::ymd(paste0(t.year + 1, '-', 12, '-', 24))
+  # if(end.month >= start.month) t.end <- lubridate::ymd(paste0(t.year, '-', 12, '-', 24))
+  # 
+  # start.dates <- seq(t.start, t.end, by = paste0(time.window, ' days'))
+  # 
+  # t.start <- lubridate::ymd(paste0(t.year, '-', start.month, '-', 1))
+  # 
+  # 
+  # if(end.month%in%c(1, 3, 5, 7, 8, 10, 12)){
+  #   
+  #   if(end.month < start.month) t.end <- lubridate::ymd(paste0(t.year + 1, '-', end.month, '-', 31))
+  #   if(end.month >= start.month) t.end <- lubridate::ymd(paste0(t.year, '-', end.month, '-', 31))
+  #   
+  # }else{
+  #   
+  #   if(end.month < start.month) t.end <- lubridate::ymd(paste0(t.year + 1, '-', end.month, '-', 30))
+  #     if(end.month >= start.month) t.end <- lubridate::ymd(paste0(t.year, '-', end.month, '-', 30))
+  # }
+  # 
+  # start.dates <- rnames <- seq(t.start, t.end, by = paste0(time.window, ' days'))
   
   # wkstart <- lubridate::floor_date(as.Date(date.start), unit = "week") + 1
   # wkend <- lubridate::floor_date(as.Date(date.end), unit = "week") + 1
@@ -288,9 +333,6 @@ get_wkclimatology <- function(remote.dataset,
   #                    lubridate::ymd(wkend), 
   #                    by = paste0(time.window, ' days'))
   # }
-  
-  
-  end.dates <- start.dates + lubridate::days(time.window-1)
   
   
   #'---------------------------------------------
@@ -353,6 +395,8 @@ get_wkclimatology <- function(remote.dataset,
   # Correct errors in latitude queries
   #'---------------------------------------------
   
+  if(error400){
+  
   # Solution found on https://github.com/ropensci/rerddap/issues/68
   
   spacing_string <- unlist(strsplit(datInfo$alldata$latitude$value[1], ","))
@@ -364,6 +408,7 @@ get_wkclimatology <- function(remote.dataset,
   latVal2 <- as.numeric(strtrim(strsplit(latVal, ",")[[1]], width = 100))
   tempLat <- paste0(latVal2[2], ',', latVal2[1])
   datInfo$alldata$latitude[datInfo$alldata$latitude$attribute_name == "actual_range", "value"] <- tempLat
+  }
   
   #'---------------------------------------------
   # Download the ERDDAP data
@@ -481,6 +526,118 @@ get_wkclimatology <- function(remote.dataset,
 }
 
 
+#'---------------------------------------------
+# Function to find week corresponding to a date
+#'---------------------------------------------
+
+find.week <- function(input.date){
+  
+  #'-----------------------------------------------------------
+  # PARAMETERS
+  #'-----------------------------------------------------------
+  # @.input.date = Date to find corresponding week for
+  
+  #'---------------------------------------------
+  # Perform function checks
+  #'---------------------------------------------
+  
+  if(!class(input.date)=="Date") stop("Input not of class Date")
+  
+  time.window <- 7
+  
+  #'---------------------------------------------
+  # Find the associate year
+  #'---------------------------------------------
+  
+  date.yr <- lubridate::year(input.date)
+  
+  # Deal with leap years
+  
+  if(lubridate::leap_year(input.date)) {
+    date.yr <- date.yr - 1
+    input.date <- input.date - lubridate::years(1)}
+  
+  #'---------------------------------------------
+  # Generate week sequence
+  #'---------------------------------------------
+  
+  t.start <- lubridate::ymd(paste0(date.yr, '-', 1, '-', 1))
+  t.end <- lubridate::ymd(paste0(date.yr, '-', 12, '-', 24))
+  
+  start.dates <- seq(t.start, t.end, by = paste0(time.window, ' days'))
+  
+  #'---------------------------------------------
+  # Find matching week
+  #'---------------------------------------------
+  
+  max(start.dates[start.dates<input.date]) %>% 
+    gsub(pattern = paste0(date.yr, '-'), replacement = '', x = .)
+}
+
+
+#'---------------------------------------------
+# Function to extract values from climatology rasters
+#'---------------------------------------------
+
+extract.climg <- function(dat,
+                          climg,
+                          var.name){
+  
+  #'-----------------------------------------------------------
+  # PARAMETERS
+  #'-----------------------------------------------------------
+  # @.dat = Input data. Must contain a column with the week date as returned by findweek()
+  # @.climg = Climatology to extract values from. Must be a list of rasters as returned by get_wkclimatology()
+  # @.var.name = Name of dat column containing week dates
+  #'-----------------------------------------------------------
+  
+  #'---------------------------------------------
+  # Perform function checks
+  #'---------------------------------------------
+  
+  if(!class(climg)%in%c("list")) stop('The climatology should be a list object')
+  if(!var.name%in%names(dat)) stop('Unrecognised column')
+  
+  #'---------------------------------------------
+  # Extract values from correct raster
+  #'---------------------------------------------
+  
+  pb <- dplyr::progress_estimated(nrow(dat)) # Set up progress bar
+  
+  purrr::map_dbl(.x = 1:nrow(dat), 
+                 .f = ~{
+                   pb$tick()$print()
+                   climg[names(climg)==dat[.x,] %>% dplyr::pull(var.name)][[1]] %>% 
+                     raster::projectRaster(from = ., crs = CRSll) %>% 
+                     raster::extract(x = ., y = dat[.x, c('longitude', 'latitude')])
+                 }, .pb = pb)
+  
+} # End function
+
+
+#'---------------------------------------------
+# Function to convert rasters for use with ggplot/ggmap
+#'---------------------------------------------
+  
+# From SDMSelect package
+# https://stackoverflow.com/questions/48955504/how-to-overlay-a-transparent-raster-on-ggmap
+
+gplot_data <- function(x, maxpixels = 50000)  {
+  x <- raster::sampleRegular(x, maxpixels, asRaster = TRUE)
+  coords <- raster::xyFromCell(x, seq_len(raster::ncell(x)))
+  ## Extract values
+  dat <- utils::stack(as.data.frame(raster::getValues(x)))
+  names(dat) <- c('value', 'variable')
+  
+  dat <- dplyr::as.tbl(data.frame(coords, dat))
+  
+  if (!is.null(levels(x))) {
+    dat <- dplyr::left_join(dat, levels(x)[[1]],
+                            by = c("value" = "ID"))
+  }
+  dat
+}
+
 #' ====================================
 # DATA IMPORT ====
 #' ====================================
@@ -489,50 +646,50 @@ get_wkclimatology <- function(remote.dataset,
 # Sightings
 #'---------------------------------------------
 
-bw <- readr::read_csv(file.path(dataDir, "timorbw_data.csv"))
+timor.dat <- readr::read_csv(file.path(dataDir, "timorbw_data.csv"))
 
 #'---------------------------------------------
 # GPS tracks
 #'---------------------------------------------
 
 gps <- list('2007' = NULL, '2008' = NULL)
+
 gps$`2007` <- readr::read_tsv(file.path(dataDir, "gps_albacora07.txt"))
 gps$`2008` <- readr::read_tsv(file.path(dataDir, "gps_bicuda08.txt"))
+
+gps.dates <- purrr::map(.x = gps, .f = ~unique(.x$Date)) %>% Reduce(c, .)
 
 #'---------------------------------------------
 # Clean column names
 #'---------------------------------------------
 
-bw <- bw %>% janitor::clean_names()
+timor.dat <- timor.dat %>% janitor::clean_names()
 gps <- purrr::map(.x = gps, .f = function(x) janitor::clean_names(x))
 
 #'---------------------------------------------
 # Format columns
 #'---------------------------------------------
 
-bw$date <- as.Date(bw$date, "%yy-%mm-%dd") # date
+timor.dat$date <- as.Date(timor.dat$date, "%yy-%mm-%dd") # date
 
-bw <- chr2fac(bw) # Converts all character variables to factors
+timor.dat <- chr2fac(timor.dat) # Converts all character variables to factors
 gps <- purrr::map(.x = gps, .f = function(x) chr2fac(x))
 
 #'---------------------------------------------
 # Add year column
 #'---------------------------------------------
 
-bw <- bw %>% 
-  dplyr::mutate(year = lubridate::year(date))
+timor.dat <- timor.dat %>% dplyr::mutate(year = lubridate::year(date))
 
 #'---------------------------------------------
-# Extract relevant data
+# Filter out sightings with no effort data
 #'---------------------------------------------
 
-bw.pts <- bw %>% 
-  dplyr::filter(species == "Blue whale") %>% 
-  dplyr::filter(obs_type == "Dedicated") %>% 
-  dplyr::filter(resighted == "Not a duplicate")
+timor.dat <- timor.dat %>% 
+  dplyr::filter(date%in%gps.dates, obs_type == "Dedicated")
 
 #'---------------------------------------------
-# Add seasons and plot distribution of obs through time
+# Add seasons
 #'---------------------------------------------
 
 # Samaran et al. (2013)'s definition of seasons for southern hemisphere blue whales:
@@ -542,34 +699,52 @@ bw.pts <- bw %>%
 # Spring: September–November. 
 
 # Here:
-# Winter = July to September
-# Spring/Summer = September to February
+# Winter = June to September
+# Inclusion of September justified from the tagging data described in Double et al (2014)
+# whereby one individual continued transmitting after August 1st and was shown to remain within Banda
+# Sea until September before starting migration.
 
-# bw %>%
-#   dplyr::mutate(month = lubridate::month(date)) %>%
-#   dplyr::mutate(twoseasons = ifelse(dplyr::between(month, 7, 8),
-#                                 'Winter', 'Summer'))
+timor.dat <- timor.dat %>% 
+  dplyr::mutate(month = lubridate::month(date)) 
 
-bw <- bw %>% dplyr::mutate(t.seasons = ifelse(season == 'Spring', 'Summer', 'Winter'))
+# Number of sightings (all species) per month
 
-  
-timeline <- bw %>% 
-  dplyr::select(date, t.seasons) %>% 
-  dplyr::mutate(top = 1)
+timor.dat %>% dplyr::pull(month) %>% table()
 
-timeline.plot <- ggplot(data = timeline, aes(date)) +
-geom_ribbon(aes(ymin = 0, ymax = top, 
-                colour = as.factor(date)), alpha=0.1) +
-  theme(legend.position = "none")
+timor.dat <- timor.dat %>% 
+  dplyr::mutate(season = as.factor(ifelse(month%in%6:9, "Winter", ifelse(month%in%10:12, "Spring", "Summer"))))
 
-# Sighting summary per season
 
-bw %>% dplyr::group_by(t.seasons) %>% 
-  count()
+#'---------------------------------------------
+# Extract blue whale data
+#'---------------------------------------------
 
-# Start of the week corresponding to each observation
+bw <- timor.dat %>% 
+  dplyr::filter(species == "Blue whale") %>% 
+  dplyr::filter(resighted == "Not a duplicate")
 
-bw <- bw %>% dplyr::mutate(wkstart = lubridate::floor_date(date, unit = "week") + 1)
+bw %>% dplyr::pull(month) %>% table(.)
+
+#'---------------------------------------------
+# Timeline of surveys
+#'---------------------------------------------
+
+# timeline.plot <- data.frame(date = gps.dates) %>% 
+#   dplyr::mutate(top = 1) %>% 
+#   dplyr::mutate(season = as.factor(ifelse(lubridate::month(date)%in%6:9, "Winter", ifelse(lubridate::month(date)%in%10:12, "Spring", "Summer")))) %>% 
+#   ggplot(data = ., aes(date)) +
+#   geom_ribbon(aes(ymin = 0, ymax = top, 
+#                   colour = as.factor(date)), alpha=0.1) +
+#   theme(legend.position = "none") +
+#   scale_color_manual(values = 'black')
+
+timeline.plot <- data.frame(date = gps.dates) %>% 
+  dplyr::mutate(top = 1) %>% 
+  dplyr::mutate(season = as.factor(ifelse(lubridate::month(date)%in%6:9, "Winter", ifelse(lubridate::month(date)%in%10:12, "Spring", "Summer")))) %>% 
+  ggplot(data = ., aes(x = date, y = top)) + 
+  geom_rug(sides = "b")+
+  geom_point(data = bw %>% dplyr::mutate(top = 1), color = "blue")
+
 
 #' =============================
 # GIS SHAPEFILES ====
@@ -667,10 +842,10 @@ gps.08@data$time <- as.character(gps.08@data$time)
 # Export shapefiles
 
 # rgdal::writeOGR(obj = gps.07, dsn = file.path("gis"),
-#                 layer = "gps_tracks_2007", driver="ESRI Shapefile")
+#                 layer = "gps_tracks_2007", driver="ESRI Shapefile", overwrite_layer = TRUE)
 # 
 # rgdal::writeOGR(obj = gps.08, dsn = file.path("gis"),
-#                 layer = "gps_tracks_2008", driver="ESRI Shapefile")
+                # layer = "gps_tracks_2008", driver="ESRI Shapefile", overwrite_layer = TRUE)
 
 #' =============================
 # MAPPING ====
@@ -711,8 +886,8 @@ gps.08f <- fortify(gps.08)
 
 xval <- seq(124.5,127.5,0.5)
 yval <- seq(8,10.5,0.5)
-lab.x<-c(paste(xval, "°E",sep=""))
-lab.y<-c(paste(yval, "°S",sep=""))
+lab.x <- c(paste(xval, "°E",sep=""))
+lab.y <- c(paste(yval, "°S",sep=""))
 
 #'---------------------------------------------
 # ggplot map
@@ -726,9 +901,9 @@ gg.timor <- ggmap(gmap.timor)+ # basemap
   
   coord_equal() + # Needs to be ### to produce map in right dimension pair
 
-  geom_point(data=bw.pts, 
+  geom_point(data = bw, 
              aes(longitude, latitude,
-                 fill=as.factor(year)), pch=21, colour = "black", size = 2.5, alpha = 1)+
+                 fill = as.factor(year)), pch = 21, colour = "black", size = 2.5, alpha = 1)+
   
   scale_fill_manual(values = c("#d8b365", "#5ab4ac"), name = "Year")+
   
@@ -788,10 +963,10 @@ gg.timor +  ggsn::north(data = gps.07f,
            y = -10, 
            size = 5)
   
-# ggsave(filename = file.path(getwd(), "figures", "Figure1.pdf"), 
-       # width = 25, 
-       # height = 20, 
-       # units = "cm")
+# ggsave(filename = file.path(getwd(), "figures", "Figure1.pdf"),
+# width = 25,
+# height = 20,
+# units = "cm")
 
 #' =============================
 # ENVIRONMENTAL LAYERS ====
@@ -984,21 +1159,25 @@ WaveletComp::wt.avg(wavelet.timor, siglvl = 0.001, sigcol = "blue")
 
 # SST climatology
 
-sst_climg <- get_climatology(dataset = 'jplMURSST41', # MUR high resolution SST
-                            variable.name = 'analysed_sst',
-                            time.window = 8, # 8-day average
-                            no.years = 10, # Over a period of 10 years
-                            region.shp = study.area,
-                            rmatch = TRUE, # Resample output rasters
-                            raster.dest = depth, # To the same resolution as depth raster
-                            date.start = '2012-07-06', # Start date of period of interest
-                            date.end = '2013-01-11') # End date of period of interest
+sst_climg <- get_wkclimatology(remote.dataset = 'jplMURSST41', # MUR high resolution SST
+                               variable.name = 'analysed_sst',
+                               t.year = 2007,
+                               start.month = 7, 
+                               end.month = 9,
+                               no.years = 10, # Over a period of 10 years
+                               climg.direction = 'centered', 
+                               region.shp = study.area,
+                               rmatch = TRUE, # Resample output rasters
+                               raster.dest = depth, # To the same resolution as depth raster
+                               error400 = FALSE) 
 
 # Check that values exist
 
 sst_climg[[1]]@data@values %>% summary()
 
-# sst_climg <- readRDS('env/sst_climg_rs.rds')
+# Mean values for plotting
+
+sstmean <- raster::stack(sst_climg) %>%   mean(.)
 
 #'---------------------------------------------
 # Chlorophyll-a ====
@@ -1030,33 +1209,29 @@ chla.buoy$data <- tibble(date = as.Date(chla.buoy$erddap$data$time,
 plot.ts(ts(chla.buoy$data$chla, frequency = 365, start = c(2003,1)),
         xlab = NA, ylab = "Chl-a (mg.m-3)", axes = TRUE)
 
-chl_climg <- get_wkclimatology(remote.dataset = 'erdMH1chla1day', 
+chla_climg <- get_wkclimatology(remote.dataset = 'erdMH1chla1day', 
                                variable.name = 'chlorophyll',
                                t.year = 2007,
                                start.month = 7, 
-                               end.month = 1,
+                               end.month = 9,
                                no.years = 10,
                                climg.direction = 'centered', 
                                region.shp = study.area,
                                rmatch = TRUE,
-                               raster.dest = depth)
-                             
-get_wkclimatology <- function(remote.dataset,
-                              variable.name,
-                              t.year = 2017,
-                              start.month = 4, 
-                              end.month = 4,
-                              no.years = 15,
-                              climg.direction = 'backwards',
-                              region.shp = NULL,
-                              rmatch = TRUE,
-                              raster.dest = NULL
+                               raster.dest = depth,
+                               error400 = TRUE)
 
 # Check that values exist
 
-chl_climg[[1]]@data@values %>% summary()
+chla_climg[[1]]@data@values %>% summary()
 
-# chl_climg <- readRDS('env/chl_climg_rs.rds')
+# Take the log10 of chla values
+
+chla_climg <- purrr::map(.x = chla_climg, .f = ~log10(.x))
+
+# Mean values for plotting
+
+chlamean <- raster::stack(chla_climg) %>% mean(.)
 
 #'---------------------------------------------
 # Fronts
@@ -1073,16 +1248,102 @@ chl_climg[[1]]@data@values %>% summary()
 # Scales et al. here 0.4 8C for SIED
 
 #'---------------------------------------------
-# Extract values from rasters
+# Extract values from rasters ====
 #'---------------------------------------------
   
-# lubridate::yday
-  
+# Find week corresponding to each date
 
+bw <- bw %>% dplyr::mutate(climgweek = purrr::map(.x = bw$date, .f = ~find.week(.x)) %>% do.call("c", .))
 
+# Retrieve values of static covariates
 
+static.env <- raster::stack(depth, seabed_slope, dist_coast, dist_canyons, dist_incising)
+names(static.env) <- c('depth', 'slope', 'dcoast', 'dcanyons', 'dcanyonsInc')
+static.env <- raster::projectRaster(from = static.env, crs = CRSll)
 
+bw.env <- tibble::as_tibble(raster::extract(x = static.env, y = bw[, c('longitude', 'latitude')]))
 
+# Retrieve values of dynamic covariates
+
+bw <- bw %>% dplyr::mutate(sst = extract.climg(dat = ., climg = sst_climg, var.name = "climgweek"),
+                     chla = extract.climg(dat = ., climg = chla_climg, var.name = "climgweek"))
+
+#'---------------------------------------------
+# Maps all covariates together (for supplementary) ====
+#'---------------------------------------------
+
+color.ramps <- list(depth = rev(pals::brewer.blues(100)),
+                    slope = pals::viridis(100),
+                    dcoast = pals::cividis(100),
+                    dcanyons = pals::parula(100),
+                    sst = pals::coolwarm(100),
+                    chla = pals::ocean.speed(100))
+
+raster.list <- list(depth = depth, 
+                    slope = seabed_slope, 
+                    dcoast = dist_coast, 
+                    dcanyons = dist_canyons, 
+                    sst = raster::stack(sst_climg) %>% mean(.),
+                    chla = raster::stack(chla_climg) %>% mean(.)) %>% 
+  purrr::map(.x = ., .f = ~raster::projectRaster(from = .x, crs = CRSll) %>% 
+               gplot_data(., maxpixels = 10000))
+
+covariate.maps <- purrr::map2(.x = raster.list, 
+            .y = 1:length(color.ramps), 
+            .f = ~
+              {
+                ggmap(gmap.timor)+ # basemap
+                  
+                  coord_equal() + # Needs to be ### to produce map in right dimension pair
+                  
+                  geom_tile(data = na.omit(.x), aes(x, y, fill = value), alpha = 1) +
+                  
+                  # GPS tracks
+                  geom_path(data = gps.07f, aes(long, lat, group = group), alpha = 0.25)+
+                  geom_path(data = gps.08f, aes(long, lat, group = group), alpha = 0.25)+
+                  
+                  coord_equal() + # Needs to be ### to produce map in right dimension pair
+                  
+                  geom_point(data = bw, 
+                             aes(longitude, latitude), pch = 21, fill = "black", size = 1, alpha = 1)+
+                  
+                  scale_fill_gradientn(colors = color.ramps[[.y]]) +
+                  
+                  ggtitle(toupper(names(color.ramps)[.y])) +
+                  
+                  xlab("")+
+                  ylab("")+
+                  
+                  scale_x_continuous(limits = range(xval), 
+                                     breaks= xval,
+                                     labels = lab.x, expand = c(0,0))+
+                  
+                  scale_y_continuous(limits = range(-yval), 
+                                     breaks= rev(-yval),
+                                     labels = rev(lab.y), expand = c(0,0))+
+                  
+                  theme_sleek() + # ggsidekick magic happens here
+                  
+                  theme(axis.text.y = element_text(angle = 90, hjust = 0.5, size = 8),
+                        axis.text.x = element_text(size = 8),
+                        panel.border = element_rect(colour = "black", fill = NA, size = 0.8),
+                        legend.key = element_rect(fill = "transparent"),
+                        legend.position = c(0.1, 0.2),
+                        legend.background = element_rect(fill = "transparent", size = 1),
+                        legend.text = element_text(size = 8, colour = "black"),
+                        legend.title = element_blank(),
+                        legend.key.size = unit(0.3,"cm"))}
+)
+
+combined.plot <- cowplot::ggdraw() +
+  cowplot::draw_plot(covariate.maps$depth, x = 0, y = 0.5, width = 0.33, height = 0.5) +
+  cowplot::draw_plot(covariate.maps$slope, x = 0.33, y = 0.5, width = 0.33, height = 0.5) +
+  cowplot::draw_plot(covariate.maps$dcoast, x = 0.66, y = 0.5, width = 0.33, height = 0.5) +
+  cowplot::draw_plot(covariate.maps$dcanyons, x = 0, y = 0, width = 0.33, height = 0.5) +
+  cowplot::draw_plot(covariate.maps$sst, x = 0.33, y = 0, width = 0.33, height = 0.5) +
+  cowplot::draw_plot(covariate.maps$chla, x = 0.66, y = 0, width = 0.33, height = 0.5)
+
+ggsave(plot = combined.plot, filename = file.path("figures", "FigureS3.pdf"), width = 25, height = 20, units = "cm")
 
 
 
