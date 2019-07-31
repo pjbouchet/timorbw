@@ -99,7 +99,17 @@ Sys.setenv(TZ = "Australia/West")
 
 make_map <- function(input.raster, 
                      col.ramp = pals::parula(100),
-                     show.canyons = FALSE){
+                     show.canyons = FALSE,
+                     show.tracks = FALSE,
+                     show.sightings = FALSE,
+                     sighting.size = 1,
+                     plot.title,
+                     legend.title = TRUE,
+                     legend.size = 0.5,
+                     legend.x = 0.1,
+                     legend.y = 0.2,
+                     axis.txt.x = 12,
+                     axis.txt.y = 12){
   
   #'-----------------------------------------------------------
   # PARAMETERS
@@ -133,6 +143,10 @@ make_map <- function(input.raster,
   if(exists("gmap.timor")==FALSE) stop("Missing basemap")
   
   if(show.canyons) canyons.plot <- fortify(canyons)
+  if(show.tracks){
+    gps.07f <- fortify(gps.07)
+    gps.08f <- fortify(gps.08)}
+
   
   #'---------------------------------------------
   # Convert to data.frame for plotting
@@ -149,13 +163,26 @@ make_map <- function(input.raster,
     
     {if(show.canyons) geom_path(data = canyons.plot, aes(long, lat, group=group))}+
     
+    # GPS tracks
+    
+    {if(show.tracks) geom_path(data = gps.07f, aes(long, lat, group = group), alpha = 0.25)}+
+    {if(show.tracks) geom_path(data = gps.08f, aes(long, lat, group = group), alpha = 0.25)}+
+    
+    # Sightings
+    
+    {if(show.sightings) geom_point(data = bw, 
+                                   aes(longitude, latitude), 
+                                   pch = 21, fill = "black", size = sighting.size, alpha = 1)}+
+
     scale_fill_gradientn(colors = col.ramp,
                          na.value = 'transparent',
                          limits = range(input.raster$z),
                          breaks = pretty(input.raster$z),
                          labels = pretty(input.raster$z))+
     
-    labs(fill = raster.name)+
+    {if(legend.title) labs(fill = raster.name)} +
+    
+    ggtitle(plot.title) +
 
     xlab("")+
     ylab("")+
@@ -170,16 +197,18 @@ make_map <- function(input.raster,
     
     theme_sleek() + # ggsidekick magic happens here
     
-    theme(axis.text.y = element_text(angle = 90, hjust = 0.5, size = 13),
-          axis.text.x = element_text(size = 13),
+    theme(axis.text.y = element_text(angle = 90, hjust = 0.5, size = axis.txt.y),
+          axis.text.x = element_text(size = axis.txt.x),
           panel.border = element_rect(colour = "black", fill=NA, size=0.8),
           legend.key = element_rect(fill = "transparent"),
-          legend.position = c(0.1, 0.25),
-          legend.key.width = unit(0.5,"cm"),
+          legend.position = c(legend.x, legend.y),
+          legend.key.width = unit(legend.size,"cm"),
           legend.background = element_rect(fill = "transparent", size = 2),
           legend.text = element_text(size = 12, colour = "black"),
-          legend.title = element_text(size = 13, face = "bold", colour = "black"),
-          legend.key.size = unit(0.75,"cm"))
+          legend.key.size = unit(0.75,"cm")) +
+    
+    {if(legend.title) theme(legend.title = element_text(size = 13, face = "bold", colour = "black"))}
+    
   
   
 }
@@ -606,29 +635,6 @@ extract_climg <- function(dat,
 } # End function
 
 
-#'---------------------------------------------
-# Function to convert rasters for use with ggplot/ggmap
-#'---------------------------------------------
-  
-# From SDMSelect package
-# https://stackoverflow.com/questions/48955504/how-to-overlay-a-transparent-raster-on-ggmap
-
-gplot_data <- function(x, maxpixels = 50000)  {
-  x <- raster::sampleRegular(x, maxpixels, asRaster = TRUE)
-  coords <- raster::xyFromCell(x, seq_len(raster::ncell(x)))
-  ## Extract values
-  dat <- utils::stack(as.data.frame(raster::getValues(x)))
-  names(dat) <- c('value', 'variable')
-  
-  dat <- dplyr::as.tbl(data.frame(coords, dat))
-  
-  if (!is.null(levels(x))) {
-    dat <- dplyr::left_join(dat, levels(x)[[1]],
-                            by = c("value" = "ID"))
-  }
-  dat
-}
-
 #' ====================================
 # DATA IMPORT ====
 #' ====================================
@@ -857,7 +863,7 @@ gps.08@data$time <- as.character(gps.08@data$time)
 #                 layer = "gps_tracks_2007", driver="ESRI Shapefile", overwrite_layer = TRUE)
 # 
 # rgdal::writeOGR(obj = gps.08, dsn = file.path("gis"),
-                # layer = "gps_tracks_2008", driver="ESRI Shapefile", overwrite_layer = TRUE)
+#                 layer = "gps_tracks_2008", driver="ESRI Shapefile", overwrite_layer = TRUE)
 
 #' =============================
 # MAPPING ====
@@ -884,15 +890,6 @@ gmap.timor <- ggmap::get_googlemap(center = c(lon=126,lat=-9.4),
 # ggmap(gmap.timor)
 
 #'---------------------------------------------
-# Fortify lines for plotting
-#'---------------------------------------------
-
-# Would normally convert to simple features, but transparency not implemented for lines yet
-
-gps.07f <- fortify(gps.07)
-gps.08f <- fortify(gps.08)
-
-#'---------------------------------------------
 # Axis labels
 #'---------------------------------------------
 
@@ -905,11 +902,11 @@ lab.y <- c(paste(yval, "°S",sep=""))
 # ggplot map
 #'---------------------------------------------
 
-gg.timor <- ggmap(gmap.timor)+ # basemap
+ggmap(gmap.timor) + # basemap
 
   # GPS tracks
-  geom_path(data = gps.07f, aes(long, lat, group = group), alpha = 0.25)+
-  geom_path(data = gps.08f, aes(long, lat, group = group), alpha = 0.25)+
+  geom_path(data = fortify(gps.07), aes(long, lat, group = group), alpha = 0.25)+
+  geom_path(data = fortify(gps.08), aes(long, lat, group = group), alpha = 0.25)+
   
   coord_equal() + # Needs to be ### to produce map in right dimension pair
 
@@ -942,7 +939,7 @@ gg.timor <- ggmap(gmap.timor)+ # basemap
         legend.title = element_text(size = 13, face = "bold", colour = "black"),
         legend.key.size = unit(0.75,"cm")) +
   
-  ggplot2::guides(fill = guide_legend(override.aes = list(size=6)))
+  ggplot2::guides(fill = guide_legend(override.aes = list(size=6))) +
   
 
 #'---------------------------------------------
@@ -952,7 +949,7 @@ gg.timor <- ggmap(gmap.timor)+ # basemap
 # Data argument HAS to match first data set of ggplot/ggmap
 # Also requires coord_equal otherwise returns an error about need for Cartesian coordinates
 
-gg.timor +  ggsn::north(data = gps.07f,
+ggsn::north(data = fortify(gps.07),
                         location = "bottomleft",
                         symbol = 12, 
                         scale = 0.15,
@@ -975,10 +972,7 @@ gg.timor +  ggsn::north(data = gps.07f,
            y = -10, 
            size = 5)
   
-# ggsave(filename = file.path(getwd(), "figures", "Figure1.pdf"),
-# width = 25,
-# height = 20,
-# units = "cm")
+# ggsave(filename = file.path("figures/Figure1.pdf"), width = 25, height = 20, units = "cm")
 
 #' =============================
 # ENVIRONMENTAL LAYERS ====
@@ -998,12 +992,16 @@ bathy <- raster::projectRaster(bathy, crs = CRSutm) # Project to UTM
 depth <- raster::mask(x = bathy, mask = study.area_utm)
 depth <- raster::crop(x = depth, y = extent(study.area_utm))
 
+make_map(input.raster = depth, show.canyons = FALSE, show.tracks = TRUE, 
+         plot.title = TRUE, 
+         legend.title = TRUE)
+
 # Quick plot
 
-plot(depth, col = pals::parula(100))
-plot(coast_utm, add = T, col = "lightgrey")
-plot(study.area_utm, add = T)
-plot(canyons_utm, add = T)
+# plot(depth, col = pals::parula(100))
+# plot(coast_utm, add = T, col = "lightgrey")
+# plot(study.area_utm, add = T)
+# plot(canyons_utm, add = T)
 
 
 #'---------------------------------------------
@@ -1019,11 +1017,7 @@ seabed_slope <- atan(seabed_slope)*180/pi
 seabed_slope <- raster::mask(x = seabed_slope, mask = study.area_utm)
 seabed_slope <- raster::crop(x = seabed_slope, y = extent(study.area_utm))
 
-# Quick plot
-
-plot(seabed_slope, col = pals::parula(100))
-plot(coast_utm, add=T, col="lightgrey")
-plot(study.area_utm, add=T)
+make_map(input.raster = seabed_slope)
 
 #'---------------------------------------------
 # Distance to coast ====
@@ -1048,9 +1042,8 @@ dist_coast <- apply(dc, 1, min)
 dist_coast <- cbind(sp::coordinates(rdf), dist_coast)
 dist_coast <- raster::rasterFromXYZ(xyz = dist_coast, crs = CRSutm)
 
-plot(dist_coast, col = pals::parula(100))
-plot(coast_utm, add = T, col = "lightgrey")
-plot(study.area_utm, add = T)
+make_map(input.raster = dist_coast)
+rm(dc)
 
 #'---------------------------------------------
 # Distance to nearest canyon ====
@@ -1068,14 +1061,11 @@ dist_canyons <- apply(dcanyons, 1, min)
 dist_canyons <- cbind(sp::coordinates(rdf), dist_canyons)
 dist_canyons <- raster::rasterFromXYZ(xyz = dist_canyons, crs = CRSutm)
 
-plot(dist_canyons, col = pals::parula(100))
-plot(coast_utm, add = T, col = "lightgrey")
-plot(study.area_utm, add=T)
-plot(canyons_utm, add = T)
+make_map(input.raster = dist_canyons)
 
 # Only shelf-incising canyon
 
-dcanyons.incising <-  rgeos::gDistance(spgeom1 = canyons_utm[canyons_utm@data$class == 2,], spgeom2 = rdf, byid = TRUE)
+dcanyons.incising <- rgeos::gDistance(spgeom1 = canyons_utm[canyons_utm@data$class == 2,], spgeom2 = rdf, byid = TRUE)
 
 # To get the nearest distance to any feature, apply min over rows
 
@@ -1083,10 +1073,7 @@ dist_incising <- apply(dcanyons.incising, 1, min)
 dist_incising <- cbind(sp::coordinates(rdf), dist_incising)
 dist_incising <- raster::rasterFromXYZ(xyz = dist_incising, crs = CRSutm)
 
-plot(dist_incising, col = pals::parula(100))
-plot(coast_utm, add = T, col = "lightgrey")
-plot(study.area_utm, add=T)
-plot(canyons_utm, add = T)
+make_map(input.raster = dist_incising)
   
 #'---------------------------------------------
 # Sea Surface Temperature (SST) ====
@@ -1111,7 +1098,7 @@ plot(study.area); points(buoy) # Quick plot
 sst.buoy <- rerddap::griddap(x = sstInfo, 
                              longitude = rep(coordinates(buoy)[1], 2), 
                              latitude = rep(coordinates(buoy)[2], 2), 
-                             time = c('2002-06-01','2018-12-31'),
+                             time = c('2002-06-02','2018-12-31'),
                              fields = 'analysed_sst')
 
 # Extract date/time and sst values
@@ -1121,6 +1108,8 @@ sst.buoy <- list(erddap = sst.buoy)
 sst.buoy$data <- tibble(date = as.Date(sst.buoy$erddap$data$time,
                                        origin = '1970-01-01', tz = "GMT"),
                         sst = sst.buoy$erddap$data$analysed_sst)
+
+# save(sst.buoy, file = 'env/sst.buoy.RData')
 
 pdf("figures/Figure-S1a.pdf", height = 4, width = 10)
 par(las=1)
@@ -1187,10 +1176,6 @@ sst_climg <- get_wkclimatology(remote.dataset = 'jplMURSST41', # MUR high resolu
 
 sst_climg[[1]]@data@values %>% summary()
 
-# Mean values for plotting
-
-sstmean <- raster::stack(sst_climg) %>%   mean(.)
-
 #'---------------------------------------------
 # Chlorophyll-a ====
 #'---------------------------------------------
@@ -1215,6 +1200,8 @@ chla.buoy <- list(erddap = chla.buoy)
 chla.buoy$data <- tibble(date = as.Date(chla.buoy$erddap$data$time,
                                         origin = '1970-01-01', tz = "GMT"),
                          chla = chla.buoy$erddap$data$chlorophyll)
+
+# save(chla.buoy, file = 'env/chla.buoy.RData')
 
 # Plot time series
 
@@ -1241,10 +1228,6 @@ chla_climg[[1]]@data@values %>% summary()
 
 chla_climg <- purrr::map(.x = chla_climg, .f = ~log10(.x))
 
-# Mean values for plotting
-
-chlamean <- raster::stack(chla_climg) %>% mean(.)
-
 #'---------------------------------------------
 # Fronts
 #'---------------------------------------------
@@ -1265,7 +1248,7 @@ chlamean <- raster::stack(chla_climg) %>% mean(.)
   
 # Find week corresponding to each date
 
-bw <- bw %>% dplyr::mutate(climgweek = purrr::map(.x = bw$date, .f = ~find.week(.x)) %>% do.call("c", .))
+bw <- bw %>% dplyr::mutate(climgweek = purrr::map(.x = bw$date, .f = ~find_week(.x)) %>% do.call("c", .))
 
 # Retrieve values of static covariates
 
@@ -1277,85 +1260,62 @@ bw.env <- tibble::as_tibble(raster::extract(x = static.env, y = bw[, c('longitud
 
 # Retrieve values of dynamic covariates
 
-bw <- bw %>% dplyr::mutate(sst = extract.climg(dat = ., climg = sst_climg, var.name = "climgweek"),
-                     chla = extract.climg(dat = ., climg = chla_climg, var.name = "climgweek"))
+bw <- bw %>% dplyr::mutate(sst = extract_climg(dat = ., climg = sst_climg, var.name = "climgweek"),
+                     chla = extract_climg(dat = ., climg = chla_climg, var.name = "climgweek"))
+
+bw <- as_tibble(cbind(bw, bw.env))
 
 #'---------------------------------------------
 # Maps all covariates together (for supplementary) ====
 #'---------------------------------------------
 
-color.ramps <- list(depth = rev(pals::brewer.blues(100)),
-                    slope = pals::viridis(100),
-                    dcoast = pals::cividis(100),
-                    dcanyons = pals::parula(100),
-                    sst = pals::coolwarm(100),
-                    chla = pals::ocean.speed(100))
-
-raster.list <- list(depth = depth, 
-                    slope = seabed_slope, 
-                    dcoast = dist_coast, 
-                    dcanyons = dist_canyons, 
-                    sst = raster::stack(sst_climg) %>% mean(.),
-                    chla = raster::stack(chla_climg) %>% mean(.)) %>% 
-  purrr::map(.x = ., .f = ~raster::projectRaster(from = .x, crs = CRSll) %>% 
-               gplot_data(., maxpixels = 10000))
-
-covariate.maps <- purrr::map2(.x = raster.list, 
-            .y = 1:length(color.ramps), 
-            .f = ~
-              {
-                ggmap(gmap.timor)+ # basemap
-                  
-                  coord_equal() + # Needs to be ### to produce map in right dimension pair
-                  
-                  geom_tile(data = na.omit(.x), aes(x, y, fill = value), alpha = 1) +
-                  
-                  # GPS tracks
-                  geom_path(data = gps.07f, aes(long, lat, group = group), alpha = 0.25)+
-                  geom_path(data = gps.08f, aes(long, lat, group = group), alpha = 0.25)+
-                  
-                  coord_equal() + # Needs to be ### to produce map in right dimension pair
-                  
-                  geom_point(data = bw, 
-                             aes(longitude, latitude), pch = 21, fill = "black", size = 1, alpha = 1)+
-                  
-                  scale_fill_gradientn(colors = color.ramps[[.y]]) +
-                  
-                  ggtitle(toupper(names(color.ramps)[.y])) +
-                  
-                  xlab("")+
-                  ylab("")+
-                  
-                  scale_x_continuous(limits = range(xval), 
-                                     breaks= xval,
-                                     labels = lab.x, expand = c(0,0))+
-                  
-                  scale_y_continuous(limits = range(-yval), 
-                                     breaks= rev(-yval),
-                                     labels = rev(lab.y), expand = c(0,0))+
-                  
-                  theme_sleek() + # ggsidekick magic happens here
-                  
-                  theme(axis.text.y = element_text(angle = 90, hjust = 0.5, size = 8),
-                        axis.text.x = element_text(size = 8),
-                        panel.border = element_rect(colour = "black", fill = NA, size = 0.8),
-                        legend.key = element_rect(fill = "transparent"),
-                        legend.position = c(0.1, 0.2),
-                        legend.background = element_rect(fill = "transparent", size = 1),
-                        legend.text = element_text(size = 8, colour = "black"),
-                        legend.title = element_blank(),
-                        legend.key.size = unit(0.3,"cm"))}
-)
+covariate.maps <- purrr::pmap(list(
+  
+  x = list(depth = depth, 
+                      slope = seabed_slope, 
+                      dcoast = dist_coast, 
+                      dcanyons = dist_canyons, 
+                      dincising = dist_incising,
+                      sst = raster::stack(sst_climg) %>% mean(.),
+                      chla = raster::stack(chla_climg) %>% mean(.)), 
+                      
+             # Colour ramps
+            y = list(depth = rev(pals::brewer.blues(100)),
+                      slope = pals::viridis(100),
+                      dcoast = pals::cividis(100),
+                      dcanyons = pals::parula(100),
+                      dincising = pals::parula(100),
+                      sst = pals::coolwarm(100),
+                      chla = pals::ocean.speed(100)),
+  
+  z = as.list(c('Depth (m)', 'Seabed slope (°)', 'Distance to coast (m)',
+        'Distance to canyon (m)', 'Distance to incising canyon (m)', 'Sea surface temperature (°C)',
+        'log(Chlorophyll-a concentration) (mg m^-3)'))),
+            
+  .f = function(x, y, z) { make_map(input.raster = x, 
+                                    col.ramp = y, 
+                                    show.canyons = FALSE, 
+                                    show.tracks = TRUE, 
+                                    show.sightings = TRUE,
+                                    sighting.size = 1,
+                                    plot.title = z,
+                                    legend.title = FALSE,
+                                    legend.size = 0.5,
+                                    legend.x = 0.1,
+                                    legend.y = 0.2,
+                                    axis.txt.x = 12,
+                                    axis.txt.y = 12)})
 
 combined.plot <- cowplot::ggdraw() +
-  cowplot::draw_plot(covariate.maps$depth, x = 0, y = 0.5, width = 0.33, height = 0.5) +
-  cowplot::draw_plot(covariate.maps$slope, x = 0.33, y = 0.5, width = 0.33, height = 0.5) +
-  cowplot::draw_plot(covariate.maps$dcoast, x = 0.66, y = 0.5, width = 0.33, height = 0.5) +
-  cowplot::draw_plot(covariate.maps$dcanyons, x = 0, y = 0, width = 0.33, height = 0.5) +
-  cowplot::draw_plot(covariate.maps$sst, x = 0.33, y = 0, width = 0.33, height = 0.5) +
-  cowplot::draw_plot(covariate.maps$chla, x = 0.66, y = 0, width = 0.33, height = 0.5)
+  cowplot::draw_plot(covariate.maps$depth, x = 0, y = 0.6, width = 0.5, height = 0.5) +
+  cowplot::draw_plot(covariate.maps$slope, x = 0.5, y = 0.6, width = 0.5, height = 0.5) +
+  cowplot::draw_plot(covariate.maps$dcoast, x = 0, y = 0.4, width = 0.5, height = 0.5) +
+  cowplot::draw_plot(covariate.maps$dcanyons, x = 0.5, y = 0.4, width = 0.5, height = 0.5) +
+  cowplot::draw_plot(covariate.maps$dincising, x = 0, y = 0.2, width = 0.5, height = 0.5) +
+  cowplot::draw_plot(covariate.maps$sst, x = 0.5, y = 0.2, width = 0.5, height = 0.5) +
+  cowplot::draw_plot(covariate.maps$chla, x = 0, y = -0.2, width = 0.5, height = 0.5)
 
-ggsave(plot = combined.plot, filename = file.path("figures", "FigureS3.pdf"), width = 25, height = 20, units = "cm")
+ggsave(plot = combined.plot, filename = file.path("figures", "FigureS2.pdf"), width = 20, height = 30, units = "cm")
 
 
 
