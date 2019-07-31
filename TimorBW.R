@@ -84,14 +84,6 @@ options(pillar.subtle = TRUE)
 options(pillar.sigfig = 4)
 
 #'---------------------------------------------
-# Directories
-#'---------------------------------------------
-
-homeDir = getwd()
-dataDir = file.path(homeDir, "data")
-figDir = file.path(homeDir, "figures") 
-
-#'---------------------------------------------
 # Time zone
 #'---------------------------------------------
 
@@ -646,7 +638,7 @@ gplot_data <- function(x, maxpixels = 50000)  {
 # Sightings
 #'---------------------------------------------
 
-timor.dat <- readr::read_csv(file.path(dataDir, "timorbw_data.csv"))
+timor.dat <- readr::read_csv("data/timorbw_data.csv")
 
 #'---------------------------------------------
 # GPS tracks
@@ -654,8 +646,29 @@ timor.dat <- readr::read_csv(file.path(dataDir, "timorbw_data.csv"))
 
 gps <- list('2007' = NULL, '2008' = NULL)
 
-gps$`2007` <- readr::read_tsv(file.path(dataDir, "gps_albacora07.txt"))
-gps$`2008` <- readr::read_tsv(file.path(dataDir, "gps_bicuda08.txt"))
+# Some issues occurred with date formats in the 2007 GPS file
+# The below code corrects them
+
+gps07 <- readr::read_tsv("data/gps_albacora07.txt", col_types = "ccddccdc")
+
+gps07 <- gps07 %>% tidyr::nest(-Month)
+gps07$data <- purrr::set_names(gps07$data, gps07$Month)
+
+gps07$data <- gps07 %>% 
+  purrr::map2(.x = .$data, 
+              .y = c('09', '12'),
+              .f = ~ .x %>% dplyr::mutate(Date = gsub(pattern = '/', replacement = '-', x = Date) %>% 
+                                            gsub(pattern = .y, replacement = '', x = .) %>% 
+                                            sub(pattern = '2007', replacement = '', x = .) %>% 
+                                            gsub(pattern = '-', replacement = '', x = .)) %>% 
+                dplyr::mutate(Date = as.Date(paste0(Year, '-', .y, '-', Date))))
+
+
+gps$`2007` <- gps07 %>% tidyr::unnest()
+gps$`2007`$Date[is.na(gps$`2007`$Date)] <- as.Date("2007-09-09")
+
+
+gps$`2008` <- readr::read_tsv("data/gps_bicuda08.txt")
 
 gps.dates <- purrr::map(.x = gps, .f = ~unique(.x$Date)) %>% Reduce(c, .)
 
@@ -738,7 +751,7 @@ bw %>% dplyr::pull(month) %>% table(.)
 #   theme(legend.position = "none") +
 #   scale_color_manual(values = 'black')
 
-timeline.plot <- data.frame(date = gps.dates) %>% 
+data.frame(date = gps.dates) %>% 
   dplyr::mutate(top = 1) %>% 
   dplyr::mutate(season = as.factor(ifelse(lubridate::month(date)%in%6:9, "Winter", ifelse(lubridate::month(date)%in%10:12, "Spring", "Summer")))) %>% 
   ggplot(data = ., aes(x = date, y = top)) + 
