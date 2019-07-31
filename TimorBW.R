@@ -522,7 +522,7 @@ get_wkclimatology <- function(remote.dataset,
 # Function to find week corresponding to a date
 #'---------------------------------------------
 
-find.week <- function(input.date){
+find_week <- function(input.date){
   
   #'-----------------------------------------------------------
   # PARAMETERS
@@ -566,12 +566,11 @@ find.week <- function(input.date){
     gsub(pattern = paste0(date.yr, '-'), replacement = '', x = .)
 }
 
-
 #'---------------------------------------------
 # Function to extract values from climatology rasters
 #'---------------------------------------------
 
-extract.climg <- function(dat,
+extract_climg <- function(dat,
                           climg,
                           var.name){
   
