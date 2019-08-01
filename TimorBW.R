@@ -675,14 +675,24 @@ gps$`2007`$Date[is.na(gps$`2007`$Date)] <- as.Date("2007-09-09")
 
 gps$`2008` <- readr::read_tsv("data/gps_bicuda08.txt")
 
-gps.dates <- purrr::map(.x = gps, .f = ~unique(.x$Date)) %>% Reduce(c, .)
-
 #'---------------------------------------------
 # Clean column names
 #'---------------------------------------------
 
 timor.dat <- timor.dat %>% janitor::clean_names()
 gps <- purrr::map(.x = gps, .f = function(x) janitor::clean_names(x))
+
+#'---------------------------------------------
+# Filters by month
+#'---------------------------------------------
+
+# Uncertainty around 2008 dates - october records labelled 'August'
+
+gps.dates <- purrr::map(.x = gps, 
+                        .f = ~.x %>% 
+                          dplyr::filter(lubridate::month(date)<=9) %>% 
+                          dplyr::pull(date) %>% unique(.)) %>% 
+  Reduce(c, .) %>% sort(.)
 
 #'---------------------------------------------
 # Format columns
@@ -756,7 +766,7 @@ bw %>% dplyr::pull(month) %>% table(.)
 #   theme(legend.position = "none") +
 #   scale_color_manual(values = 'black')
 
-data.frame(date = gps.dates) %>% 
+data.frame(date = c(gps$`2007`$date, gps$`2008`$date)) %>% 
   dplyr::mutate(top = 1) %>% 
   dplyr::mutate(season = as.factor(ifelse(lubridate::month(date)%in%6:9, "Winter", ifelse(lubridate::month(date)%in%10:12, "Spring", "Summer")))) %>% 
   ggplot(data = ., aes(x = date, y = top)) + 
