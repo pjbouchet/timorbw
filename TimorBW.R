@@ -1327,10 +1327,11 @@ combined.plot <- cowplot::ggdraw() +
 
 ggsave(plot = combined.plot, filename = file.path("figures", "FigureS2.pdf"), width = 20, height = 30, units = "cm")
 
+#'---------------------------------------------
+# Correlation ====
+#'---------------------------------------------
 
-
-
-
+virtualspecies::removeCollinearity()
 
 
 
