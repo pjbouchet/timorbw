@@ -399,7 +399,7 @@ make_map(input.raster = seabed_slope, show.tracks = TRUE, plot.title = "Slope (d
 
 rdf <- raster::as.data.frame(depth, xy = T)
 rdf <- rdf[complete.cases(rdf),] # Removes NAs
-rdf <- SpatialPoints(rdf[,1:2], CRSutm) # Converts to SpatialPts
+rdf <- sp::SpatialPoints(rdf[,1:2], CRSutm) # Converts to SpatialPts
 
 # Cartesian distances
 
