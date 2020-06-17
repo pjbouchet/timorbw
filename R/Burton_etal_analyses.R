@@ -16,9 +16,10 @@
 # Note: sf requires GDAL, which can be tricky to install on some OS
 # For Mac, see: https://stackoverflow.com/questions/44973639/trouble-installing-sf-due-to-gdal
 
-# require(devtools)
-# devtools::install_github("seananderson/ggsidekick")
-# devtools::install_github("dkahle/ggmap", ref = "tidyup")
+require(remotes)
+remotes::install_github("seananderson/ggsidekick")
+remotes::install_github("dkahle/ggmap", ref = "tidyup")
+remotes::install_github("beckyfisher/FSSgam_package")
 
 pacman::p_load(tidyverse, # Tidyverse
                raster, # Raster and GIS operations
@@ -43,10 +44,6 @@ pacman::p_load(tidyverse, # Tidyverse
                smoothr, # Smooth and Tidy Spatial Features in R. 
                janitor, # Data cleaning 
                FSSgam) # All subsets GAMs
-
-# To get the latest install of ggmap:
-# if(!requireNamespace("devtools")) install.packages("devtools")
-# devtools::install_github("dkahle/ggmap", ref = "tidyup", force=TRUE)
 
 # Note that Google has recently changed its policies. For use after July 2018, need to
 # log on to Google Cloud Platform, create a project, generate API key and enable billing
@@ -835,13 +832,10 @@ summary(bestmodel)
 par(mfrow = c(2,2))
 gam.check(bestmodel)
 
-purrr::walk(.x = 1:4, .f = ~{
-  plot(bestmodel, shade = TRUE, scale = 0, select = .x); abline(h = 0, lty = 2)})
-
 # Spatial autocorrelation -------------------------------------------------------------
 
 plot_correlogram(model = bestmodel, data = bw.pb)
-plot_variogram(model = bestmodel, data = bw.pb)
+plot_variogram(model = bestmodel, dat = bw.pb)
 
 # Model performance -------------------------------------------------------------
 
@@ -970,5 +964,5 @@ weekly.predictions <- get_predictions(model = bestmodel, time.span = winter.week
 #'---------------------------------------------
 
 raster::calc(x = weekly.predictions, mean) %>% 
-  plot(., col = rev(pals::brewer.rdylgn(n = 100)))
+  plot(., col = pals::viridis(n = 100))
 points(bw.pb[bw.pb$presence==1,]$x, bw.pb[bw.pb$presence==1,]$y, pch = 16)

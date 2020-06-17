@@ -1140,17 +1140,18 @@ make_map <- function(input.raster,
                      
                      scale_x_continuous(limits = range(xval), 
                                         breaks= xval,
-                                        labels = lab.x, expand=c(0,0))+
+                                        labels = lab.x)+
                      
                      scale_y_continuous(limits = range(-yval), 
                                         breaks= rev(-yval),
-                                        labels = rev(lab.y),expand=c(0,0))+
+                                        labels = rev(lab.y), expand = c(0,0))+
                      
                      theme_sleek() + # ggsidekick magic happens here
                      
-                     theme(axis.text.y = element_text(angle = 90, hjust = 0.5, size = axis.txt.y),
-                           axis.text.x = element_text(size = axis.txt.x),
-                           panel.border = element_rect(colour = "black", fill=NA, size=0.8),
+                     theme(axis.text.y = element_text(angle = 90, hjust = 0.5, colour = "black", size = axis.txt.y),
+                           axis.text.x = element_text(size = axis.txt.x, colour = "black"),
+                           plot.title = element_text(colour = "black"),
+                           panel.border = element_rect(colour = "black", fill = NA, size=0.8),
                            legend.key = element_rect(fill = "transparent"),
                            legend.position = c(legend.x, legend.y),
                            legend.key.width = unit(legend.size,"cm"),
