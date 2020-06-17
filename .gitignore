@@ -6,3 +6,4 @@ deprecated
 buoy
 env/.RData
 *.RData
+data/
