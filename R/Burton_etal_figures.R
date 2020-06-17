@@ -10,58 +10,13 @@
 # Register Google API Key
 # ggmap::register_google(key = "xxxxxx")
 
+# Figure 1 ---------------------------------------------------------------
+
 #'---------------------------------------------
 # Basemap
 #'---------------------------------------------
 
 gmap.timor <- readRDS("/Users/philippebouchet/Google Drive/Documents/git/timorbw/gis/timor_gmap.rds")
-
-
-# Figure S1 ---------------------------------------------------------------
-
-#'---------------------------------------------
-# Time series
-#'---------------------------------------------
-
-pdf("figures/Figure-S1a.pdf", height = 4, width = 10)
-par(las=1)
-plot.ts(ts(sst.buoy$data$sst, frequency = 365, start = c(2002,1)),
-        xlab = NA, ylab = "SST (°C)", axes = FALSE)
-time.labels <- seq(as.Date('2002-06-01'), as.Date('2018-12-31'), by = "12 months") 
-axis(2)
-axis(1, labels = lubridate::year(time.labels), 
-     at = seq(from = 2002, by = 1, length.out = length(time.labels)))
-box()
-box()
-dev.off() 
-
-#'---------------------------------------------
-# Wavelet power spectrum
-#'---------------------------------------------
-
-pdf("figures/Figure-S1b.pdf", height = 5, width = 8)
-WaveletComp::wt.image(wavelet.timor, 
-                      exponent = 1,
-                      plot.coi = TRUE,
-                      color.key = "interval", 
-                      color.palette = "rev(pals::parula(n.levels))",
-                      n.levels = 100,
-                      show.date = TRUE,
-                      timelab = "",
-                      spec.time.axis = list(at = time.labels, 
-                                            labels = lubridate::year(time.labels)),
-                      periodlab = "",
-                      legend.params = list(n.ticks = 15, 
-                                           label.digits = 1))
-dev.off()
-
-
-# gmap.timor <- ggmap::get_googlemap(center = c(lon=126,lat=-9.4),
-#                           zoom=8,
-#                           size = c(640, 640),
-#                           scale=2,
-#                           maptype="roadmap",
-#                           style = 'feature:road|element:all|visibility:simplified&style=feature:administrative.locality|element:labels|visibility:simplified')
 
 ggmap(gmap.timor) # Quick visualisation
 
@@ -69,7 +24,7 @@ ggmap(gmap.timor) # Quick visualisation
 # Axis labels
 #'---------------------------------------------
 
-xval <- seq(124.5,127.5,0.5)
+xval <- seq(124.75,127.25,0.5)
 yval <- seq(8,10.5,0.5)
 lab.x <- c(paste(xval, "°E",sep=""))
 lab.y <- c(paste(yval, "°S",sep=""))
@@ -78,30 +33,28 @@ lab.y <- c(paste(yval, "°S",sep=""))
 # ggplot map
 #'---------------------------------------------
 
-fig.1 <- ggmap(gmap.timor) + # basemap
+fig.1 <- ggmap::ggmap(gmap.timor) + # basemap
   
   # GPS tracks
-  geom_path(data = fortify(gps.07), aes(long, lat, group = group), alpha = 0.25)+
-  geom_path(data = fortify(gps.08), aes(long, lat, group = group), alpha = 0.25)+
+  geom_path(data = fortify(gps.07), aes(long, lat, group = group), colour = "#d8b365", alpha = 0.85)+
+  geom_path(data = fortify(gps.08), aes(long, lat, group = group), colour = "#5ab4ac", alpha = 0.85)+
   
   coord_equal() + # Needs to be ### to produce map in right dimension pair
   
-  geom_point(data = bw, 
-             aes(longitude, latitude,
-                 fill = as.factor(year)), pch = 21, colour = "black", size = 2.5, alpha = 1)+
+  geom_point(data = bw, aes(longitude, latitude, fill = as.factor(year)), pch = 21, size = 2, alpha = 0.85)+
   
-  scale_fill_manual(values = c("#d8b365", "#5ab4ac"), name = "Year")+
+  scale_fill_manual(values = c("#d8b365", "#5ab4ac"), name = NULL)+
   
   xlab("")+
   ylab("")+
   
   scale_x_continuous(limits = range(xval), 
                      breaks= xval,
-                     labels = lab.x, expand=c(0,0))+
+                     labels = lab.x)+
   
   scale_y_continuous(limits = range(-yval), 
                      breaks= rev(-yval),
-                     labels = rev(lab.y),expand=c(0,0))+
+                     labels = rev(lab.y), expand = c(0,0))+
   
   theme_sleek() + # ggsidekick magic happens here
   
@@ -131,24 +84,86 @@ fig.1 <- ggmap(gmap.timor) + # basemap
               scale = 0.15,
               anchor = c(x = 126.95, y = -10.2)) +
   
-  ggsn::scalebar(x.min = 125,
+  ggsn::scalebar(data = fortify(gps.07),
+                 x.min = 125,
                  x.max = 127.5,
                  y.min = -10.5,
                  y.max = -9,
                  dist = 25, 
-                 height = 0.02,
-                 dd2km = F,
-                 model="WGS84",
+                 transform = TRUE,
+                 dist_unit = "km",
+                 height = 0.03,
+                 model = "WGS84",
                  anchor = c(x = 127.25, y = -10.3),
-                 st.dist = 0.05) +
+                 st.dist = 0.05, border.size = 0.2, nudge_y = -0.025) +
   
   annotate("text", 
            label = "N", 
            x = 127.025, 
            y = -10, 
-           size = 5)
+           size = 5) + 
+  
+  theme(axis.title.x = element_text(colour = "black"),
+        axis.title.y = element_text(colour = "black"))
 
-# ggsave(filename = file.path("figures/Figure1.pdf"), width = 25, height = 20, units = "cm")
+
+ggsave(filename = file.path("fig/Figure1.png"), width = 25, height = 20, units = "cm")
+
+
+# Figure 2 ----------------------------------------------------------------
+
+png("fig/Figure2.png", res = 450, width = 2500, height = 2750)
+par(mfrow = c(2,2))
+purrr::walk(.x = 1:4, .f = ~{
+  plot(bestmodel, shade = TRUE, scale = 0, select = .x, xlab = c("Max chlorophyll-a concentration", "Distance to incising canyon", "FCPI", "Slope")[.x]); abline(h = 0, lty = 2)})
+dev.off()
+
+# Figure S1 ---------------------------------------------------------------
+
+#'---------------------------------------------
+# (A) Time series
+#'---------------------------------------------
+
+png("fig/Figure-S1a.png", res = 450, height = 1800, width = 3500)
+par(las=1)
+plot.ts(ts(sst.buoy$data$sst, frequency = 365, start = c(2002,1)),
+        xlab = NA, ylab = "SST (°C)", axes = FALSE)
+time.labels <- seq(as.Date('2002-06-01'), as.Date('2018-12-31'), by = "12 months") 
+axis(2)
+axis(1, labels = lubridate::year(time.labels), 
+     at = seq(from = 2002, by = 1, length.out = length(time.labels)))
+box()
+box()
+dev.off() 
+
+#'---------------------------------------------
+# (B) Wavelet power spectrum
+#'---------------------------------------------
+
+png("fig/Figure-S1b.png", res = 450, height = 2500, width = 3500)
+WaveletComp::wt.image(wavelet.timor, 
+                      exponent = 1,
+                      plot.coi = TRUE,
+                      color.key = "interval", 
+                      color.palette = "rev(pals::parula(n.levels))",
+                      n.levels = 100,
+                      show.date = TRUE,
+                      timelab = "",
+                      spec.time.axis = list(at = time.labels, 
+                                            labels = lubridate::year(time.labels)),
+                      periodlab = "",
+                      legend.params = list(n.ticks = 15, 
+                                           label.digits = 1))
+dev.off()
+
+
+# gmap.timor <- ggmap::get_googlemap(center = c(lon=126,lat=-9.4),
+#                           zoom=8,
+#                           size = c(640, 640),
+#                           scale=2,
+#                           maptype="roadmap",
+#                           style = 'feature:road|element:all|visibility:simplified&style=feature:administrative.locality|element:labels|visibility:simplified')
+
 
 # Figure S2 ---------------------------------------------------------------
 
@@ -161,8 +176,8 @@ covariate.maps <- purrr::pmap(list(
            dcoast = dist_coast, 
            dcanyons = dist_canyons, 
            dincising = dist_incising,
-           sst = raster::stack(sst_climg) %>% mean(.),
-           chla = raster::stack(chla_climg) %>% mean(.)), 
+           sst = raster::stack(sst_climg) %>% mean(., na.rm = TRUE),
+           chla = raster::stack(chla_climg) %>% mean(., na.rm = TRUE)), 
   
   # Colour ramps
   y = list(depth = rev(pals::brewer.blues(100)),
@@ -175,7 +190,7 @@ covariate.maps <- purrr::pmap(list(
   
   z = as.list(c('Depth (m)', 'Seabed slope (°)', 'Distance to coast (km)',
                 'Distance to canyon (km)', 'Distance to incising canyon (km)', 'Sea surface temperature (°C)',
-                'log10(Chlorophyll-a concentration) (mg m^-3)'))),
+                'log10(chla) (mg/m3)'))),
   
   .f = function(x, y, z) { make_map(input.raster = x, 
                                     col.ramp = y, 
@@ -190,17 +205,23 @@ covariate.maps <- purrr::pmap(list(
                                     legend.y = 0.2,
                                     axis.txt.x = 12,
                                     axis.txt.y = 12)})
-
-cowplot::ggdraw() +
+require(patchwork)
+fig.s2 <- cowplot::ggdraw() +
   cowplot::draw_plot(covariate.maps$depth, x = 0, y = 0.6, width = 0.5, height = 0.5) +
   cowplot::draw_plot(covariate.maps$slope, x = 0.5, y = 0.6, width = 0.5, height = 0.5) +
   cowplot::draw_plot(covariate.maps$dcoast, x = 0, y = 0.4, width = 0.5, height = 0.5) +
   cowplot::draw_plot(covariate.maps$dcanyons, x = 0.5, y = 0.4, width = 0.5, height = 0.5) +
   cowplot::draw_plot(covariate.maps$dincising, x = 0, y = 0.2, width = 0.5, height = 0.5) +
   cowplot::draw_plot(covariate.maps$sst, x = 0.5, y = 0.2, width = 0.5, height = 0.5) +
-  cowplot::draw_plot(covariate.maps$chla, x = 0, y = -0.2, width = 0.5, height = 0.5) %>% 
-  ggsave(plot = ., filename = file.path("figures", "FigureS2.pdf"), width = 20, height = 30, units = "cm")
+  cowplot::draw_plot(covariate.maps$chla, x = 0, y = -0.2, width = 0.5, height = 0.5)
 
+
+
+fig.s2 <- (covariate.maps$depth | covariate.maps$slope) /
+  (covariate.maps$dcoast | covariate.maps$dcanyons) /
+    (covariate.maps$sst | covariate.maps$chla)
+
+ggsave(plot = fig.s2, filename = file.path("fig", "FigureS2.png"), width = 30, height = 30, units = "cm")
 
 # Correlation -------------------------------------------------------------
 
