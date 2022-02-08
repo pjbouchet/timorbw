@@ -1,11 +1,9 @@
-#' ------------------------------------------------------------------------
-#' ------------------------------------------------------------------------
-#' 
-#'  Winter distribution and habitat use of blue whales (Balaenoptera musculus sp.) 
-#'  in the Timor Trough, south of Timor-Leste during 2007-08
-#'
-#' ------------------------------------------------------------------------
-#' ------------------------------------------------------------------------
+##%######################################################%##
+#                                                          #
+####      Evidence of pygmy blue whale foraging in      ####
+####     the Timor Trough during the austral winter     ####
+#                                                          #
+##%######################################################%##
 
 # Libraries and global settings ------------------------------------------
 
@@ -35,6 +33,7 @@ pacman::p_load(tidyverse, # Tidyverse
                SDMTools, # Tools for processing data in SDMs
                lubridate, # Date handling
                ggplot2, # Graphics
+               rworldmap, # Mapping global data
                gstats,# Spatial and Spatio-Temporal Geostatistical Modelling, Prediction and Simulation
                purrrlyr, # Intersection of purrr/dplyr
                scales, # For comma format on plots
@@ -60,7 +59,7 @@ set.seed(87) # Set the random seed (reproducible results)
 options(tibble.width = Inf) # All tibble columns shown
 options(pillar.neg = FALSE) # No colouring negative numbers
 options(pillar.subtle = TRUE)
-options(pillar.sigfig = 4)
+options(pillar.sigfig = 5)
 
 #'---------------------------------------------
 # Set time zone
@@ -491,6 +490,7 @@ wavelet.timor <- WaveletComp::analyze.wavelet(my.data = sst.buoy$data,
                                               my.series = "sst",
                                               loess.span = 0,
                                               dt = 1, 
+                                              method = "Fourier.rand",
                                               lowerPeriod = 1,
                                               upperPeriod = 1500,
                                               make.pval = FALSE,
@@ -499,7 +499,7 @@ wavelet.timor <- WaveletComp::analyze.wavelet(my.data = sst.buoy$data,
 
 # Wavelet power averages across time
 
-WaveletComp::wt.avg(wavelet.timor, siglvl = 0.001, sigcol = "blue")
+WaveletComp::wt.avg(wavelet.timor)
 
 # Generate SST climatology
 
@@ -801,7 +801,6 @@ plot(mod0, shade = TRUE, scale = 0); abline (h = 0, lty = 2)
 
 bw.modelset <- list.model.sets(response.var = "presence", 
                                dat = bw.pb, 
-                               include.xy = FALSE,
                                covariates = c("sst", "chla.max", "chla", "depth",
                                               "slope", "dcanyonsInc", "fcpi", "dcoast"),
                                corr.cutoff = 0.5,
@@ -831,20 +830,137 @@ summary(bestmodel)
 
 par(mfrow = c(2,2))
 gam.check(bestmodel)
+qq.gam(bestmod, rep = 1000, pch = 16)
+
+testmodel <- gam(presence ~ s(fcpi, k = 3) + s(chla.max, k = 3) + s(slope, k = 3) + s(dcanyonsInc, k = 3, bs = "tp"),
+                 weights = bw.pb$weights,
+                 REML = TRUE,
+                 family = binomial(link = "logit"),
+                 data = bw.pb)
+
+summary(testmodel)
+acf(residuals(testmodel, "pearson"))
+pacf(residuals(testmodel, "pearson"))
+plot(bestmodel, scale = 0, shade = TRUE, pages = 1)
+qq.gam(testmodel, rep = 1000, pch = 16)
+par(mfrow = c(2,2))
+gam.check(testmodel)
+par(mfrow = c(1,1))
 
 # Spatial autocorrelation -------------------------------------------------------------
 
-plot_correlogram(model = bestmodel, data = bw.pb)
+correlog.bw <- plot_correlogram(model = bestmodel, data = bw.pb, maxD = 50000)
 plot_variogram(model = bestmodel, dat = bw.pb)
 
+Vario1 <- geoR::variog(coords = bw.pb[, c("x", "y")],
+                       data = residuals(bestmodel, type = "pearson"),
+                       max.dist = 25000, breaks = seq(0, 25000, by = 1000))
+plot(Vario1)
+
+# generate standadized residuals
+
+resids <- residuals(bestmodel, type = "pearson")
+var.dat_resid <- gstat::variogram(resids~1, loc= ~x+y, data=bw.pb)
+variog.fit <- gstat::fit.variogram(var.dat_resid, gstat::vgm(c("Sph", "Exp")))
+plot(var.dat_resid, variog.fit)  
+
+
+inv_dist = with(bw.pb, 1/dist(cbind(x, y), diag = T, upper = T))
+inv_dist = as.matrix(inv_dist)
+ape::Moran.I(bw.pb$presence, weight = inv_dist, scaled=T)
+
+plot(nlme::Variogram(bestmodel, form = ~ x + y, data = bw.pb))
+
+resids <- as.numeric(residuals(bestmodel, type = "pearson"))
+resids.df <- data.frame(bw.pb, resids = resids)
+ggplot(resids.df[resids.df$resids > -1,], aes(x, y, colour = resids)) + 
+  geom_point(size = 5, alpha = 0.5) + scale_color_gradient2()
+
+lr.fit <- mgcViz::getViz(testmodel)
+mgcViz::qq(lr.fit, rep = 100, level = .9, CI = "quantile")
+
+correlog1.1 <- ncf::correlog(bw.pb$x, bw.pb$y, residuals(bestmodel, type = "pearson"),
+                        na.rm=T, increment=1, resamp=0)
+plot(correlog1.1$correlation[1:50], type="b", pch=16, cex=1.5, lwd=1.5,
+     xlab="distance", ylab="Moran's I", cex.lab=2, cex.axis=1.5, ylim = c(-1, 1)); abline(h=0)
+plot(bw.pb$x, bw.pb$y, col=c("blue", "red")[sign(resid(bestmodel))/2+1.5], pch=19,
+     cex=abs(resid(bestmodel))/max(resid(bestmodel))*2, xlab="geographical xcoordinates", ylab="geographical y-coordinates")
+
+
+gamm_spat = gamm(presence ~ s(chla.max, k = 5, bs = "tp") + 
+                   s(fcpi, k = 5, bs = "tp"), 
+                 family = binomial(link = "logit"),
+                 data=bw.pb, 
+                 correlation = corGaus(1, form = ~ x + y))
+plot(gamm_spat)
+
+acf(residuals(bestmodel))
+pacf(residuals(bestmodel))
+
+bw.pb$fda <- factor(bw.pb$date)
+
+
 # Model performance -------------------------------------------------------------
+
+# The final model is used to predict the data on the response scale (i.e. a value between 0 and 1)
+pr <- predict(bestmodel, bw.pb, type = "response")                          
+
+# Specify the vector of predictions (pr) and the vector of labels (i.e. the observed values "Pres")
+pred <- ROCR::prediction(predictions = as.numeric(pr), labels = bw.pb$presence)                           
+# to assess model performance in the form of the true positive rate and the false positive rate
+perf <- ROCR::performance(pred, measure = "tpr", x.measure = "fpr") 
+
+plot(perf, colorize=TRUE) # to plot the ROC curve
+abline(0,1, lty = 2)
+
+auc <- ROCR::performance(pred, "auc")
+auc <- auc@y.values[[1]]
+
+myroc <- pROC::roc(bw.pb$presence, pr)
+plot(myroc)
+ci(myroc)
+
+# Choice of the best cut-off probability
+
+y<-as.data.frame(perf@y.values)
+x<-as.data.frame(perf@x.values)
+fi <- atan(y/x) - pi/4                                             # to calculate the angle between the 45° line and the line joining the origin with the point (x;y) on the ROC curve
+L <- sqrt(x^2+y^2)                                                 # to calculate the length of the line joining the origin to the point (x;y) on the ROC curve
+d <- L*sin(fi)                                                     # to calculate the distance between the 45° line and the ROC curve
+d <- tibble::tibble(d)
+names(d) <- "value"
+# The table should then be opened in Microsoft Excel to find the maximum distance with the command "Sort", and the relative position (i.e. the number of the corresponding record)
+# MAX d= 0.277124605038953 --> position 2098
+
+which(d == max(d, na.rm = TRUE))
+alpha<-as.data.frame(perf@alpha.values)    # the alpha values represent the corresponding cut-offs
+alpha[which(d == max(d, na.rm = TRUE)),]      
+
+
+DATA<-matrix(0,nrow(bw.pb),3)     # to build a matrix with 3 columns and n rows, where n is the dimension of the data set (here 4973 - the number of rows can be checked with dim(dat)) 
+DATA<-as.data.frame(DATA)
+names(DATA)<-c("plotID","Observed","Predicted")
+DATA$plotID<-1:nrow(bw.pb)                                           # the first column is filled with an ID value that is unique for each row
+DATA$Observed<-bw.pb$presence                                            # the second column reports the observed response (0s and 1s)
+DATA$Predicted<-predict(bestmodel,bw.pb,type="response")                 # the third column reports the predictions
+confusmat <- PresenceAbsence::cmx(DATA, threshold = alpha[which(d == max(d, na.rm = TRUE)),])       
+
+PresenceAbsence::presence.absence.accuracy(DATA, threshold = alpha[which(d == max(d, na.rm = TRUE)),] )
+PresenceAbsence::auc.roc.plot(DATA, color = TRUE, legend.cex = 1.4, main = "")
+
+
+sorensen <- 2*confusmat[1,1]/(confusmat[2,1] + 2 * confusmat[1,1] + confusmat[1,2])
+
+modEvA::HLfit(bestmodel, bin.method = "n.bins", n.bins = 10, main = "Hosmer-Lemeshow GOF, N bins")
+Dsquared(bestmodel)
+AUC(bestmodel)
 
 #'---------------------------------------------
 # Cross-validation settings
 #'---------------------------------------------
 
-nCV <- 50
-cv.ratio <- 0.1
+nCV <- 100
+cv.ratio <- 0.3
 
 #'---------------------------------------------
 # Create training and testing datasets
@@ -867,8 +983,11 @@ for (i in 1:nCV){
     if(sum(dsummary[dsummary$date%in%days_out,]$n)>0) int <- 1
   }
   
-  bw.training <- bw.pb[!(bw.pb$date %in% days_out),] %>% dplyr::mutate(response = presence)
-  bw.evaluation <- bw.pb[bw.pb$date %in% days_out,] %>% dplyr::mutate(response = presence)
+  bw.training <- bw.pb[!(bw.pb$date %in% days_out),] %>% 
+    dplyr::mutate(response = presence)
+  
+  bw.evaluation <- bw.pb[bw.pb$date %in% days_out,] %>% 
+    dplyr::mutate(response = presence)
   
   if(sum(bw.evaluation$response)==0)
     
@@ -888,7 +1007,12 @@ rm(dsummary, days_out)
 # Set up tibble object to hold results
 #'---------------------------------------------
 
-mod_cv <- tibble::tibble(cv.run = NA, int.AUC = NA, ext.AUC = NA, diff.AUC = NA, threshold = NA, TSS = NA)
+mod_cv <- tibble::tibble(cv.run = NA, 
+                         int.AUC = NA, 
+                         ext.AUC = NA, 
+                         diff.AUC = NA, 
+                         threshold = NA, 
+                         TSS = NA)
 models_cv <- list()
 
 #'---------------------------------------------
@@ -919,7 +1043,10 @@ for(i in 1:nCV){
   # TSS = threshold-dependent metric calculated on confusion matrix from pred.ext
   thresh <- SDMTools::optim.thresh(obs = evaluation.df.day[[i]]$presence,
                                    pred = pred.ext)$`max.sensitivity+specificity`[1]
-  conf.mat <- SDMTools::confusion.matrix(obs = evaluation.df.day[[i]]$presence, pred = pred.ext, threshold = thresh)
+  
+  conf.mat <- SDMTools::confusion.matrix(obs = evaluation.df.day[[i]]$presence, 
+                                         pred = pred.ext, threshold = thresh)
+  
   tss <- SDMTools::sensitivity(conf.mat) + SDMTools::specificity(conf.mat) - 1
   
   mod_cv[i, ] <- c(i, int.AUC, ext.AUC, diff.AUC, thresh, tss)
@@ -963,6 +1090,23 @@ weekly.predictions <- get_predictions(model = bestmodel, time.span = winter.week
 # Plot average predictions
 #'---------------------------------------------
 
-raster::calc(x = weekly.predictions, mean) %>% 
-  plot(., col = pals::viridis(n = 100))
+bw.preds <- raster::calc(x = weekly.predictions, mean) 
+plot(bw.preds, col = pals::viridis(n = 100))
 points(bw.pb[bw.pb$presence==1,]$x, bw.pb[bw.pb$presence==1,]$y, pch = 16)
+points(bw.pb[bw.pb$presence==0,]$x, bw.pb[bw.pb$presence==0,]$y, col = "grey", pch = '.')
+
+#'---------------------------------------------
+# Point biserial correlation
+#'---------------------------------------------
+
+pbis.df <- bw.pb %>%
+  dplyr::mutate(HS = raster::extract(bw.preds, .[, c("x", "y")]))
+
+pbis.df1 <- pbis.df %>% dplyr::filter(presence == 1)
+pbis.df0 <- pbis.df %>% dplyr::filter(presence == 0)
+
+dismo::evaluate(p = pbis.df1, a = pbis.df0, model = bestmodel)
+
+
+ltm::biserial.cor(x = pbis.df$HS, y = pbis.df$presence, use = c("complete"), level = 2)
+cor.test(pbis.df$HS, pbis.df$presence)

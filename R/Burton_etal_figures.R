@@ -10,7 +10,93 @@
 # Register Google API Key
 # ggmap::register_google(key = "xxxxxx")
 
-# Figure 1 ---------------------------------------------------------------
+# Table 1 ---------------------------------------------------------------
+
+# Number of sightings
+sightings.per.month <- bw %>% 
+  dplyr::group_by(year, month) %>% 
+  tally(species == "Blue whale") %>% dplyr::ungroup()
+
+# Number of calves
+bw %>% 
+  dplyr::group_by(year, month) %>% 
+  tally(calves) %>% dplyr::ungroup()
+
+# Number of individuals
+bw %>% 
+  dplyr::group_by(year, month) %>% 
+  tally(adcalves) %>% dplyr::ungroup()
+
+# Number of effort days
+
+gps$`2007` %>% 
+  dplyr::mutate(month = factor(lubridate::month(date))) %>%
+  dplyr::group_by(year, month) %>% 
+  dplyr::summarise(effort_days = dplyr::n_distinct(date), min_date = min(date), max_date = max(date)) %>% dplyr::ungroup()
+
+gps$`2008` %>% 
+  dplyr::mutate(month = factor(lubridate::month(date))) %>%
+  dplyr::group_by(year, month) %>% 
+  dplyr::summarise(effort_days = dplyr::n_distinct(date), min_date = min(date), max_date = max(date)) %>% dplyr::ungroup()
+
+gps.lines <- rbind(gps$`2007`, gps$`2008`) %>% 
+  split(x = ., f = .$date) %>% 
+  purrr::map(., ~.x %>% split(x = ., f = .$line_id) %>% purrr::map(., ~ createLines(.))) %>% 
+  purrr::map_depth(.x = ., .depth = 2, .f = ~sp::spTransform(.x, CRSobj = CRSutm)) %>% 
+  purrr::map(.x = ., .f = ~do.call(rbind, .)) %>% 
+  purrr::map(.x = ., .f = ~smoothr::drop_crumbs(x =.x, threshold = 250))
+
+depth.along.lines <- 
+ purrr::map(.x = gps.lines, 
+            .f = ~{
+              tmp <- sp::spsample(.x, n = 1000, type = "regular") %>%
+                raster::extract(x = depth, y = .)
+              range(tmp)
+                }) %>% tibble::enframe() %>% 
+  dplyr::mutate(minDepth = purrr::map_dbl(.x = value, .f = ~.x[[1]]),
+                maxDepth = purrr::map_dbl(.x = value, .f = ~.x[[2]])) %>%
+  dplyr::mutate(date = lubridate::as_date(name)) %>%
+  dplyr::select(-value, name) %>%
+  dplyr::mutate(year = lubridate::year(date), month = lubridate::month(date))
+  
+depth.along.lines %>% 
+  dplyr::group_by(year, month) %>% 
+  dplyr::summarise(minDepth = min(minDepth), maxdepth = max(maxDepth)) %>%
+  dplyr::ungroup()
+
+daily.effort <- purrr::map_df(.x = gps.lines, .f = ~rgeos::gLength(.x)) %>% 
+  t() %>% as_tibble(rownames = "date") %>% 
+  dplyr::rename(length = V1) %>% 
+  dplyr::mutate(km = length / 1000,
+                month = lubridate::month(date),
+                year = lubridate::year(date))
+
+monthly.tally <- daily.effort %>% 
+  dplyr::group_by(year, month) %>% 
+  dplyr::summarise(total = sum(km)) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::left_join(x = ., y = sightings.per.month, by = c("year", "month")) %>% 
+  dplyr::mutate(n = ifelse(is.na(n), 0, n))
+
+
+# Figure 1 (R version) ---------------------------------------------------------------
+
+# Code taken from https://egallic.fr/en/maps-with-r/
+
+# World map
+worldMap <- rworldmap::getMap(resolution = "high")
+world.points <- ggplot2::fortify(worldMap)
+world.points$region <- world.points$id
+world.df <- world.points[,c("long","lat","group", "region")]
+
+w <- ggplot() + 
+  geom_polygon(data = world.df, aes(x = long, y = lat, group = group), 
+               fill = "grey20", color = "grey20") +
+  coord_map("ortho", orientation = c(12, 125, -2)) + 
+  theme_void() + xlab("") + ylab("") +
+  theme(panel.background = element_rect(fill = "grey95", colour = "grey95"))
+
+ggsave("/Users/philippebouchet/Google Drive/Documents/git/timorbw/fig/globe.pdf", plot = w)
 
 #'---------------------------------------------
 # Basemap
@@ -142,18 +228,18 @@ dev.off()
 
 png("fig/Figure-S1b.png", res = 450, height = 2500, width = 3500)
 WaveletComp::wt.image(wavelet.timor, 
-                      exponent = 1,
                       plot.coi = TRUE,
+                      plot.contour = TRUE,
+                      exponent = 1,
+                      siglvl = 0.1,
                       color.key = "interval", 
                       color.palette = "rev(pals::parula(n.levels))",
                       n.levels = 100,
                       show.date = TRUE,
                       timelab = "",
-                      spec.time.axis = list(at = time.labels, 
-                                            labels = lubridate::year(time.labels)),
+                      spec.time.axis = list(at = time.labels, labels = lubridate::year(time.labels)),
                       periodlab = "",
-                      legend.params = list(n.ticks = 15, 
-                                           label.digits = 1))
+                      legend.params = list(n.ticks = 15, label.digits = 1))
 dev.off()
 
 

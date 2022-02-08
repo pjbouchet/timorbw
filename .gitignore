@@ -7,3 +7,7 @@ buoy
 env/.RData
 *.RData
 data/
+gis/
+env/
+pdf/
+fig/

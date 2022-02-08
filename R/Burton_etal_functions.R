@@ -574,7 +574,7 @@ automatic_weights_creation <- function(resp, prev = 0.5, subset = NULL){
 # Plot spline correlogram and semivariogram
 #'---------------------------------------------
 
-plot_correlogram <- function(model, data, maxD = 15000, nboot = 500){
+plot_correlogram <- function(model, data, maxD = 15000, nboot = 500, byrow = FALSE){
   
   #'--------------------------------------------------------------------
   # PARAMETERS
@@ -586,18 +586,20 @@ plot_correlogram <- function(model, data, maxD = 15000, nboot = 500){
   #'--------------------------------------------------------------------
   
   # For the data
-  
+  cat("Analysing raw data ... \n")
   Correlog.data <- ncf::spline.correlog(x = data$x, y = data$y, z = data$presence, xmax = maxD, resamp = nboot)
   
   # For model residuals
-  
+  cat("Analysing model residuals ... \n")
   Correlog.residuals <- ncf::spline.correlog(x = data$x, y = data$y, z = residuals(model, type = "pearson"), xmax = maxD, resamp = nboot)
   
   # Plot results
-  par(mfrow = c(2,1))
-  ncf::plot.spline.correlog(Correlog.data)
-  ncf::plot.spline.correlog(Correlog.residuals)
+  if(byrow) par(mfrow = c(2,1)) else par(mfrow = c(1,2))
+  plot(Correlog.data, main = "Raw data")
+  plot(Correlog.residuals, main = "Pearson residuals")
   par(mfrow = c(1,1))
+  cat("Done!")
+  return(list(raw = Correlog.data, resid = Correlog.residuals))
 }
 
 plot_variogram <- function(model, dat, maxD = 15000){
@@ -613,8 +615,7 @@ plot_variogram <- function(model, dat, maxD = 15000){
   vario.data <- data.frame(residuals(model, type = "pearson"), x = dat$x, y = dat$y)
   coordinates(vario.data) <- c("x", "y")
   bw.variogram <- gstat::variogram(residuals(model, type = "pearson") ~ 1, vario.data, 
-                                   cutoff = maxD,
-                                   alpha = c(0, 45, 90, 135))
+                                   cutoff = maxD, alpha = c(0, 45, 90, 135))
   plot(bw.variogram)
   
 }
@@ -711,7 +712,7 @@ list.model.sets <- function(response.var,
   #' @param response.var Response variable.
   #' @param dat Input data.
   #' @param covariates Input covariates.
-  #' @param include.xy Whether to weigh presence and pseudo-absence points.
+  #' @param use.weights Whether to weigh presence and pseudo-absence points.
   #' @param corr.cutoff Maximm correlation between covariates.
   #' @param max.predictors Maximum number of predictors in a single model.
   #' @param verbose If TRUE, prints function status during execution.
