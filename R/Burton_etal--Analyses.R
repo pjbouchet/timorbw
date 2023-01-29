@@ -27,6 +27,7 @@ pacman::p_load(tidyverse, # Tidyverse
                pals, # Colour palettes (parula)
                plyr, # Split-apply-combine paradigm
                tidyr, # Tidy messy data
+               ggmap, # Spatial Visualization with ggplot2
                sf, # Simple features
                terra, # Manipulate geographic (spatial) data in "raster" and "vector" form
                ncf, # Spatial covariance functions
@@ -56,8 +57,6 @@ pacman::p_load(tidyverse, # Tidyverse
 # Note that Google has recently changed its policies. For use after July 2018, need to
 # log on to Google Cloud Platform, create a project, generate API key and enable billing
 # https://stackoverflow.com/questions/52565472/get-map-not-passing-the-api-key-http-status-was-403-forbidden
-
-# library(ggmap)
 
 set.seed(20221202) # Set the random seed (reproducible results)
 
@@ -702,7 +701,6 @@ bw.df <- dplyr::arrange(bw.df, datetime)
 # Model fitting ------------------------------------------------------------------
 
 corr <- cor(bw.df[, covariate.names], use = "complete.obs")
-ggcorrplot::ggcorrplot(corr, hc.order = FALSE, type = "lower", lab = TRUE)
 
 # Generate model list using a full subsets approach
 bw.modelset <- na.omit(bw.df) %>%
